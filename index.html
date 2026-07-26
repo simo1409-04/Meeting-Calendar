@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="color-scheme"
+        content="light"
+    >
+
+    <title>Календар за заетост</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+</head>
+
+<body>
+    <div class="page-wrapper">
+        <header class="top-header">
+            <div>
+                <h1>Календар за заетост</h1>
+                <p>Meeting Calendar</p>
+            </div>
+        </header>
+
+        <main class="main-layout">
+            <section
+                id="calendarBox"
+                class="calendar-box"
+                aria-labelledby="monthTitle"
+            >
+                <div class="calendar-header">
+                    <button
+                        id="prevMonthBtn"
+                        type="button"
+                        aria-label="Предишен месец"
+                    >
+                        ‹
+                    </button>
+
+                    <h2 id="monthTitle">
+                        Месец
+                    </h2>
+
+                    <button
+                        id="nextMonthBtn"
+                        type="button"
+                        aria-label="Следващ месец"
+                    >
+                        ›
+                    </button>
+                </div>
+
+                <div
+                    class="week-days"
+                    aria-hidden="true"
+                >
+                    <span>Пон</span>
+                    <span>Вто</span>
+                    <span>Сря</span>
+                    <span>Чет</span>
+                    <span>Пет</span>
+                    <span>Съб</span>
+                    <span>Нед</span>
+                </div>
+
+                <div
+                    id="calendarDays"
+                    class="calendar-days"
+                ></div>
+
+                <div class="legend">
+                    <div>
+                        <span class="legend-color free"></span>
+                        свободен
+                    </div>
+
+                    <div>
+                        <span class="legend-color low"></span>
+                        1–3 човека
+                    </div>
+
+                    <div>
+                        <span class="legend-color medium"></span>
+                        4–7 човека
+                    </div>
+
+                    <div>
+                        <span class="legend-color full"></span>
+                        8–10 човека
+                    </div>
+
+                    <div>
+                        <span class="legend-color weekend"></span>
+                        недостъпен
+                    </div>
+                </div>
+            </section>
+
+            <section
+                id="detailsBox"
+                class="details-box"
+            >
+                <div class="details-fixed-header">
+                    <h2>
+                        Информация за избран ден
+                    </h2>
+
+                    <p
+                        id="selectedDateText"
+                        class="selected-date-text"
+                    >
+                        Изберете работен ден от календара.
+                    </p>
+                </div>
+
+                <div
+                    id="detailsInnerScroll"
+                    class="details-inner-scroll"
+                >
+                    <div
+                        id="sidePreview"
+                        class="side-preview"
+                    >
+                        <p class="empty-text">
+                            Изберете ден, за да видите дневния график
+                            и записаните студенти.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="student-form-card">
+                <form
+                    id="studentForm"
+                    class="student-form disabled-form"
+                    autocomplete="off"
+                >
+                    <span class="section-eyebrow">
+                        ЕДИНИЧНО ДОБАВЯНЕ
+                    </span>
+
+                    <h2 id="formTitle">
+                        Добавяне на студент
+                    </h2>
+
+                    <p class="card-description">
+                        Избери ден от календара и въведи информацията
+                        за студента.
+                    </p>
+
+                    <label for="dayName">
+                        План за деня
+                    </label>
+
+                    <input
+                        type="text"
+                        id="dayName"
+                        maxlength="80"
+                        placeholder="Напр. Консултация, Защита, Среща"
+                        disabled
+                    >
+
+                    <div class="form-row">
+                        <div>
+                            <label for="startTime">
+                                От час
+                            </label>
+
+                            <select
+                                id="startTime"
+                                disabled
+                            ></select>
+                        </div>
+
+                        <div>
+                            <label for="endTime">
+                                До час
+                            </label>
+
+                            <select
+                                id="endTime"
+                                disabled
+                            ></select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div>
+                            <label for="firstName">
+                                Име
+                            </label>
+
+                            <input
+                                type="text"
+                                id="firstName"
+                                maxlength="50"
+                                disabled
+                            >
+                        </div>
+
+                        <div>
+                            <label for="lastName">
+                                Фамилия
+                            </label>
+
+                            <input
+                                type="text"
+                                id="lastName"
+                                maxlength="50"
+                                disabled
+                            >
+                        </div>
+                    </div>
+
+                    <label for="facultyNumber">
+                        Факултетен номер
+                    </label>
+
+                    <input
+                        type="text"
+                        id="facultyNumber"
+                        maxlength="30"
+                        placeholder="По желание"
+                        disabled
+                    >
+
+                    <label for="university">
+                        Университет
+                    </label>
+
+                    <input
+                        type="text"
+                        id="university"
+                        maxlength="100"
+                        placeholder="По желание"
+                        disabled
+                    >
+
+                    <div class="form-actions">
+                        <button
+                            type="submit"
+                            id="saveBtn"
+                            disabled
+                        >
+                            Потвърди
+                        </button>
+
+                        <button
+                            type="button"
+                            id="cancelEditBtn"
+                            class="secondary-button"
+                            hidden
+                        >
+                            Откажи редакция
+                        </button>
+                    </div>
+
+                    <p
+                        id="formMessage"
+                        class="form-message"
+                        aria-live="polite"
+                    ></p>
+                </form>
+            </section>
+
+            <section
+                class="bulk-card"
+                aria-labelledby="bulkTitle"
+            >
+                <div class="card-heading-row">
+                    <div>
+                        <span class="section-eyebrow">
+                            МАСОВО ДОБАВЯНЕ
+                        </span>
+
+                        <h2 id="bulkTitle">
+                            Добавяне на студенти от списък
+                        </h2>
+                    </div>
+
+                    <button
+                        id="copyPromptBtn"
+                        class="copy-prompt-button"
+                        type="button"
+                    >
+                        Копирай prompt-а
+                    </button>
+                </div>
+
+                <p class="card-description">
+                    Всеки студент е отделен с точка и запетая.
+                    Данните за един студент се разделят със запетая.
+                    Може да поставиш всеки студент и на нов ред.
+                </p>
+
+                <div class="bulk-instructions">
+                    <div>
+                        <strong>За избраната дата:</strong>
+
+                        <code>
+                            Име,Фамилия,Факултетен номер,Университет,От,До
+                        </code>
+                    </div>
+
+                    <div>
+                        <strong>С конкретна дата:</strong>
+
+                        <code>
+                            Дата,Име,Фамилия,Факултетен номер,Университет,От,До
+                        </code>
+                    </div>
+
+                    <div>
+                        <strong>С дата и план:</strong>
+
+                        <code>
+                            Дата,План,Име,Фамилия,Факултетен номер,Университет,От,До
+                        </code>
+                    </div>
+                </div>
+
+                <div class="bulk-example">
+                    <strong>Пример:</strong>
+
+                    <code>
+                        2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,11:00,12:30;
+                        2026-07-27,Консултации,Георги,Петров,329СР,СУ,13:00,14:00
+                    </code>
+                </div>
+
+                <label for="bulkStudentsInput">
+                    Списък със студенти
+                </label>
+
+                <div
+                    id="bulkEditor"
+                    class="bulk-editor"
+                >
+                    <pre
+                        id="bulkHighlightLayer"
+                        class="bulk-highlight-layer"
+                        aria-hidden="true"
+                    ></pre>
+
+                    <textarea
+                        id="bulkStudentsInput"
+                        rows="11"
+                        spellcheck="false"
+                        aria-label="Списък със студенти"
+                        placeholder="2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,11:00,12:30;&#10;2026-07-27,Консултации,Георги,Петров,329СР,СУ,13:00,14:00"
+                    ></textarea>
+                </div>
+
+                <div class="bulk-actions">
+                    <button
+                        id="addStudentsListBtn"
+                        type="button"
+                    >
+                        Добави списък
+                    </button>
+
+                    <button
+                        id="clearStudentsListBtn"
+                        class="secondary-button"
+                        type="button"
+                    >
+                        Изчисти
+                    </button>
+                </div>
+
+                <div
+                    id="bulkResult"
+                    class="bulk-result"
+                    hidden
+                >
+                    <div class="bulk-result-grid">
+                        <div>
+                            <strong id="bulkAddedCount">
+                                0
+                            </strong>
+
+                            <span>добавени</span>
+                        </div>
+
+                        <div>
+                            <strong id="bulkSkippedCount">
+                                0
+                            </strong>
+
+                            <span>пропуснати</span>
+                        </div>
+
+                        <div>
+                            <strong id="bulkErrorCount">
+                                0
+                            </strong>
+
+                            <span>грешки</span>
+                        </div>
+                    </div>
+
+                    <ul
+                        id="bulkErrorList"
+                        class="bulk-error-list"
+                    ></ul>
+                </div>
+
+                <p
+                    id="bulkMessage"
+                    class="bulk-message"
+                    aria-live="polite"
+                ></p>
+
+                <p
+                    id="copyPromptStatus"
+                    class="copy-status"
+                    aria-live="polite"
+                ></p>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
