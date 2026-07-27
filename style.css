@@ -1,20 +1,22 @@
-* {
-    box-sizing: border-box;
-}
-
 :root {
     --navy: #30475e;
     --navy-dark: #1b263b;
     --blue: #2563eb;
     --blue-dark: #1d4ed8;
-    --red: #c92a2a;
-    --green: #2f9e44;
-    --gray: #6b7280;
-    --text: #172033;
+    --green: #15803d;
+    --red: #c62828;
+    --gray: #64748b;
+    --text: #1f2937;
     --muted: #64748b;
     --border: #d7dce3;
     --background: #eef2f5;
     --panel: #ffffff;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
 
 html {
@@ -86,7 +88,7 @@ textarea:focus-visible,
         "calendar details"
         "single bulk";
     gap: 24px;
-    align-items: start;
+    align-items: stretch;
 }
 
 .calendar-box {
@@ -110,8 +112,11 @@ textarea:focus-visible,
 .student-form-card,
 .bulk-card {
     min-width: 0;
+    height: 100%;
     padding: 24px;
-    border: 1px solid rgba(48, 71, 94, 0.08);
+    border:
+        1px solid
+        rgba(48, 71, 94, 0.08);
     border-radius: 16px;
     background: var(--panel);
     box-shadow:
@@ -121,8 +126,8 @@ textarea:focus-visible,
 
 .calendar-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     margin-bottom: 18px;
 }
 
@@ -173,23 +178,20 @@ textarea:focus-visible,
 
 .day {
     position: relative;
+    width: 100%;
     min-height: 104px;
     padding: 10px;
     border: 1px solid #d9dee5;
     border-radius: 13px;
     color: inherit;
     background: #f9fafb;
+    font-family: inherit;
+    text-align: left;
     cursor: pointer;
     transition:
         transform 0.15s,
         box-shadow 0.15s,
         border-color 0.15s;
-}
-
-button.day {
-    width: 100%;
-    font-family: inherit;
-    text-align: left;
 }
 
 .day:hover:not(.empty):not(.unavailable-day) {
@@ -337,7 +339,9 @@ button.day {
     overscroll-behavior: contain;
     touch-action: pan-y;
     scrollbar-width: thin;
-    scrollbar-color: #94a3b8 #eef2f6;
+    scrollbar-color:
+        #94a3b8
+        #eef2f6;
 }
 
 .details-inner-scroll::-webkit-scrollbar {
@@ -379,8 +383,8 @@ button.day {
 .timeline-section-title,
 .bookings-section-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
 }
@@ -397,6 +401,13 @@ button.day {
     font-size: 13px;
 }
 
+.timeline,
+.timeline-wrapper,
+.people-grid,
+.person-column {
+    min-width: 0;
+}
+
 .timeline {
     width: 100%;
     overflow: visible;
@@ -409,13 +420,11 @@ button.day {
         minmax(0, 1fr);
     gap: 7px;
     width: 100%;
-    min-width: 0;
 }
 
 .time-scale {
     position: relative;
     height: 452px;
-    min-width: 0;
 }
 
 .time-cell {
@@ -441,11 +450,6 @@ button.day {
         );
     gap: clamp(3px, 0.5vw, 8px);
     width: 100%;
-    min-width: 0;
-}
-
-.person-column {
-    min-width: 0;
 }
 
 .person-name {
@@ -465,7 +469,6 @@ button.day {
     position: relative;
     width: 100%;
     height: 420px;
-    min-width: 0;
     overflow: visible;
     border: 1px solid #d6deea;
     border-radius: 9px;
@@ -492,7 +495,11 @@ button.day {
     border: 0;
     border-radius: 7px;
     color: #ffffff;
-    background: var(--booking-color, #2563eb);
+    background:
+        var(
+            --booking-color,
+            #2563eb
+        );
     box-shadow:
         0 4px 11px
         rgba(15, 23, 42, 0.18);
@@ -526,40 +533,58 @@ button.day {
 
 .student-tooltip {
     position: absolute;
+    top: 18px;
     left: 50%;
-    bottom: calc(100% + 11px);
+    bottom: auto;
     z-index: 100;
-    width: min(270px, 72vw);
+
+    width: min(270px, calc(100vw - 50px));
+    max-height: 280px;
     padding: 14px;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 12px;
+
     color: #ffffff;
     background: #172033;
+
     box-shadow:
         0 15px 36px
         rgba(10, 20, 35, 0.35);
+
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
+
     transform: translate(-50%, 8px);
+
     transition:
         opacity 0.15s ease,
-        transform 0.15s ease;
+        transform 0.15s ease,
+        visibility 0.15s ease;
+
     text-align: left;
 }
 
 .student-tooltip::after {
     content: "";
     position: absolute;
-    top: 100%;
+    bottom: 100%;
     left: 50%;
+
     border: 8px solid transparent;
-    border-top-color: #172033;
+    border-bottom-color: #172033;
+
     transform: translateX(-50%);
 }
 
 .busy-block:hover .student-tooltip,
 .busy-block:focus-visible .student-tooltip {
     opacity: 1;
+    visibility: visible;
     transform: translate(-50%, 0);
 }
 
@@ -572,9 +597,7 @@ button.day {
 
 .tooltip-row {
     display: grid;
-    grid-template-columns:
-        90px
-        1fr;
+    grid-template-columns: 90px 1fr;
     gap: 8px;
     padding: 5px 0;
     border-top:
@@ -635,9 +658,7 @@ button.day {
 
 .slot-actions {
     display: grid;
-    grid-template-columns:
-        1fr
-        1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin-top: 12px;
 }
@@ -668,6 +689,24 @@ button.day {
 
 .delete-booking-btn:hover {
     background: #a61e1e;
+}
+
+.student-form-card,
+.bulk-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.student-form-card .student-form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.student-form-card .form-actions {
+    margin-top: auto;
+    padding-top: 20px;
 }
 
 .section-eyebrow {
@@ -711,9 +750,7 @@ button.day {
 
 .form-row {
     display: grid;
-    grid-template-columns:
-        1fr
-        1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 14px;
 }
 
@@ -753,8 +790,8 @@ button.day {
 
 .card-heading-row {
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
+    justify-content: space-between;
     gap: 18px;
 }
 
@@ -831,11 +868,9 @@ button.day {
 
 .bulk-editor:focus-within {
     border-color: var(--blue);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-}
-
-.bulk-editor.has-results {
-    border-color: #aab7c7;
+    box-shadow:
+        0 0 0 3px
+        rgba(37, 99, 235, 0.14);
 }
 
 .bulk-highlight-layer,
@@ -872,7 +907,6 @@ button.day {
     z-index: 2;
     display: block;
     resize: vertical;
-    min-height: 230px;
     color: var(--text);
     caret-color: var(--text);
     background: transparent;
@@ -885,38 +919,38 @@ button.day {
 }
 
 .bulk-record-highlight {
+    display: inline;
     color: var(--text);
     border-radius: 4px;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
 }
 
-.bulk-record-highlight.success {
+.bulk-record-highlight.success,
+.bulk-record-highlight[data-state="success"] {
     color: #166534;
-    background: rgba(34, 197, 94, 0.2);
-    text-decoration: underline 2px rgba(22, 163, 74, 0.75);
+    background:
+        rgba(34, 197, 94, 0.22);
+    text-decoration:
+        underline 2px
+        rgba(22, 163, 74, 0.82);
     text-underline-offset: 3px;
 }
 
-.bulk-record-highlight.error {
+.bulk-record-highlight.error,
+.bulk-record-highlight[data-state="error"] {
     color: #991b1b;
-    background: rgba(239, 68, 68, 0.18);
-    text-decoration: underline 2px rgba(220, 38, 38, 0.78);
-    text-underline-offset: 3px;
-}
-
-.bulk-record-highlight.skipped {
-    color: #854d0e;
-    background: rgba(234, 179, 8, 0.2);
-    text-decoration: underline 2px rgba(202, 138, 4, 0.78);
+    background:
+        rgba(239, 68, 68, 0.24);
+    text-decoration:
+        underline 2px
+        rgba(220, 38, 38, 0.88);
     text-underline-offset: 3px;
 }
 
 .bulk-actions {
     display: grid;
-    grid-template-columns:
-        1fr
-        auto;
+    grid-template-columns: 1fr auto;
     gap: 10px;
     margin-top: 12px;
 }

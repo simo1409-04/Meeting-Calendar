@@ -1,384 +1,119 @@
-"use strict";
-
-const STORAGE_KEY =
-    "meetingCalendarScheduleV2";
-
-const LEGACY_STORAGE_KEY =
-    "schedule";
-
+const STORAGE_KEY = "meeting-calendar-schedule-v4";
 const MAX_STUDENTS_PER_DAY = 10;
 
-const OPENING_HOUR = 8;
-const CLOSING_HOUR = 18;
+const DAY_START = 8 * 60;
+const DAY_END = 18 * 60;
 
-const TIMELINE_HEIGHT = 420;
 const TIMELINE_HEADER_HEIGHT = 32;
+const TIMELINE_BODY_HEIGHT = 420;
 
-const STUDENT_COLORS = [
+const DEFAULT_START_TIME = "09:00";
+
+const BOOKING_COLORS = [
     "#2563eb",
     "#7c3aed",
-    "#db2777",
-    "#dc2626",
-    "#ea580c",
-    "#ca8a04",
-    "#16a34a",
     "#0891b2",
-    "#0284c7",
-    "#4f46e5"
+    "#059669",
+    "#d97706",
+    "#dc2626",
+    "#4f46e5",
+    "#0f766e",
+    "#9333ea",
+    "#c2410c"
 ];
 
-const GPT_PROMPT = `Прочети студентите от screenshot-а и върни САМО данните в този формат, без обяснения:
-Дата,План за деня,Име,Фамилия,Факултетен номер,Университет,От,До;
+const GPT_PROMPT = `Генерирай списък със студенти за директно поставяне в полето за масово добавяне.
+
+Използвай точно един от следните формати:
+
+1) За вече избрана дата:
+Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
+
+2) С конкретна дата:
+Дата,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
+
+3) С дата и план:
+Дата,План,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
 
 Правила:
-- Данните за един студент се разделят със запетая.
-- Отделните студенти се разделят с точка и запетая.
-- Всеки студент може да бъде поставен и на отделен ред.
-- Датата да е във формат YYYY-MM-DD.
-- Часовете да са във формат HH:MM.
-- Часовете трябва да бъдат между 08:00 и 18:00.
-- Ако липсва план за деня, напиши "-".
-- Ако липсва факултетен номер, напиши "-".
-- Ако липсва университет, напиши "-".
-- Не добавяй номерация, markdown таблица или допълнителен текст.
+- Датата да бъде във формат YYYY-MM-DD.
+- Часовете да бъдат число от 0.5 до 9, през стъпка 0.5.
+- Всеки студент да бъде отделен с точка и запетая или да бъде на нов ред.
+- Не добавяй заглавия, номерация, обяснения или markdown таблица.
+- Не пропускай име, фамилия, часове и наставник.
 
 Пример:
-2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,11:00,12:30;
-2026-07-27,Консултации,Георги,Петров,329СР,СУ,13:00,14:00;
-2026-07-28,Защити,Сияна,Георгиева,330СР,ТУ София,09:00,10:30`;
+2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,6,Венета Христова Йосифова;
+2026-07-28,Консултации,Мария,Петрова,412СР,СУ,4.5,Петър Димитров`;
 
-const monthNames = [
-    "Януари",
-    "Февруари",
-    "Март",
-    "Април",
-    "Май",
-    "Юни",
-    "Юли",
-    "Август",
-    "Септември",
-    "Октомври",
-    "Ноември",
-    "Декември"
-];
+const $ = (id) => document.getElementById(id);
 
-let schedule = {};
-let selectedDate = null;
-let editingId = null;
+const calendarBox = $("calendarBox");
+const prevMonthBtn = $("prevMonthBtn");
+const monthTitle = $("monthTitle");
+const nextMonthBtn = $("nextMonthBtn");
+const calendarDays = $("calendarDays");
 
-const today =
-    startOfLocalDay(
-        new Date()
-    );
+const detailsBox = $("detailsBox");
+const selectedDateText = $("selectedDateText");
+const sidePreview = $("sidePreview");
 
-let currentMonth =
-    today.getMonth();
+const studentForm = $("studentForm");
+const formTitle = $("formTitle");
+const dayNameInput = $("dayName");
+const startTimeInput = $("startTime");
+const endTimeInput = $("endTime");
+const hoursForTheDayInput = $("hoursForTheDay");
+const firstNameInput = $("firstName");
+const lastNameInput = $("lastName");
+const facultyNumberInput = $("facultyNumber");
+const universityInput = $("university");
+const mentorInput = $("mentor");
+const saveBtn = $("saveBtn");
+const cancelEditBtn = $("cancelEditBtn");
+const formMessage = $("formMessage");
+
+const copyPromptBtn = $("copyPromptBtn");
+const bulkEditor = $("bulkEditor");
+const bulkHighlightLayer = $("bulkHighlightLayer");
+const bulkStudentsInput = $("bulkStudentsInput");
+const addStudentsListBtn = $("addStudentsListBtn");
+const clearStudentsListBtn = $("clearStudentsListBtn");
+const bulkResult = $("bulkResult");
+const bulkAddedCount = $("bulkAddedCount");
+const bulkSkippedCount = $("bulkSkippedCount");
+const bulkErrorCount = $("bulkErrorCount");
+const bulkErrorList = $("bulkErrorList");
+const bulkMessage = $("bulkMessage");
+const copyPromptStatus = $("copyPromptStatus");
+
+const today = new Date();
+
+today.setHours(
+    0,
+    0,
+    0,
+    0
+);
 
 let currentYear =
     today.getFullYear();
 
-const calendarBox =
-    document.getElementById(
-        "calendarBox"
-    );
+let currentMonth =
+    today.getMonth();
 
-const detailsBox =
-    document.getElementById(
-        "detailsBox"
-    );
+let selectedDate = null;
+let editingId = null;
 
-const detailsInnerScroll =
-    document.getElementById(
-        "detailsInnerScroll"
-    );
-
-const calendarDays =
-    document.getElementById(
-        "calendarDays"
-    );
-
-const monthTitle =
-    document.getElementById(
-        "monthTitle"
-    );
-
-const prevMonthBtn =
-    document.getElementById(
-        "prevMonthBtn"
-    );
-
-const nextMonthBtn =
-    document.getElementById(
-        "nextMonthBtn"
-    );
-
-const selectedDateText =
-    document.getElementById(
-        "selectedDateText"
-    );
-
-const sidePreview =
-    document.getElementById(
-        "sidePreview"
-    );
-
-const studentForm =
-    document.getElementById(
-        "studentForm"
-    );
-
-const formTitle =
-    document.getElementById(
-        "formTitle"
-    );
-
-const dayNameInput =
-    document.getElementById(
-        "dayName"
-    );
-
-const startTimeInput =
-    document.getElementById(
-        "startTime"
-    );
-
-const endTimeInput =
-    document.getElementById(
-        "endTime"
-    );
-
-const firstNameInput =
-    document.getElementById(
-        "firstName"
-    );
-
-const lastNameInput =
-    document.getElementById(
-        "lastName"
-    );
-
-const facultyNumberInput =
-    document.getElementById(
-        "facultyNumber"
-    );
-
-const universityInput =
-    document.getElementById(
-        "university"
-    );
-
-const saveBtn =
-    document.getElementById(
-        "saveBtn"
-    );
-
-const cancelEditBtn =
-    document.getElementById(
-        "cancelEditBtn"
-    );
-
-const formMessage =
-    document.getElementById(
-        "formMessage"
-    );
-
-const bulkStudentsInput =
-    document.getElementById(
-        "bulkStudentsInput"
-    );
-
-const bulkEditor =
-    document.getElementById(
-        "bulkEditor"
-    );
-
-const bulkHighlightLayer =
-    document.getElementById(
-        "bulkHighlightLayer"
-    );
-
-const addStudentsListBtn =
-    document.getElementById(
-        "addStudentsListBtn"
-    );
-
-const clearStudentsListBtn =
-    document.getElementById(
-        "clearStudentsListBtn"
-    );
-
-const bulkMessage =
-    document.getElementById(
-        "bulkMessage"
-    );
-
-const bulkResult =
-    document.getElementById(
-        "bulkResult"
-    );
-
-const bulkAddedCount =
-    document.getElementById(
-        "bulkAddedCount"
-    );
-
-const bulkSkippedCount =
-    document.getElementById(
-        "bulkSkippedCount"
-    );
-
-const bulkErrorCount =
-    document.getElementById(
-        "bulkErrorCount"
-    );
-
-const bulkErrorList =
-    document.getElementById(
-        "bulkErrorList"
-    );
-
-const copyPromptBtn =
-    document.getElementById(
-        "copyPromptBtn"
-    );
-
-const copyPromptStatus =
-    document.getElementById(
-        "copyPromptStatus"
-    );
-
-function startOfLocalDay(date) {
-    return new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate()
-    );
-}
-
-function formatDate(
-    year,
-    month,
-    day
-) {
-    return [
-        String(year).padStart(
-            4,
-            "0"
-        ),
-
-        String(month + 1).padStart(
-            2,
-            "0"
-        ),
-
-        String(day).padStart(
-            2,
-            "0"
-        )
-    ].join("-");
-}
-
-function parseDateKey(dateKey) {
-    const match =
-        /^(\d{4})-(\d{2})-(\d{2})$/.exec(
-            String(dateKey)
-                .trim()
-        );
-
-    if (!match) {
-        return null;
-    }
-
-    const year =
-        Number(match[1]);
-
-    const month =
-        Number(match[2]) - 1;
-
-    const day =
-        Number(match[3]);
-
-    const date =
-        new Date(
-            year,
-            month,
-            day
-        );
-
-    if (
-        date.getFullYear() !== year ||
-        date.getMonth() !== month ||
-        date.getDate() !== day
-    ) {
-        return null;
-    }
-
-    return date;
-}
-
-function getTodayKey() {
-    return formatDate(
-        today.getFullYear(),
-        today.getMonth(),
-        today.getDate()
-    );
-}
-
-function isPastDate(date) {
-    return (
-        startOfLocalDay(
-            date
-        ).getTime() <
-        today.getTime()
-    );
-}
-
-function isWeekend(date) {
-    return (
-        date.getDay() === 0 ||
-        date.getDay() === 6
-    );
-}
-
-function getBulgarianDayIndex(date) {
-    return (
-        date.getDay() === 0
-            ? 6
-            : date.getDay() - 1
-    );
-}
-
-function escapeHtml(value) {
-    return String(value ?? "")
-        .replaceAll(
-            "&",
-            "&amp;"
-        )
-        .replaceAll(
-            "<",
-            "&lt;"
-        )
-        .replaceAll(
-            ">",
-            "&gt;"
-        )
-        .replaceAll(
-            '"',
-            "&quot;"
-        )
-        .replaceAll(
-            "'",
-            "&#039;"
-        );
-}
+let schedule =
+    loadSchedule();
 
 function createId() {
     if (
-        globalThis.crypto &&
-        typeof globalThis.crypto.randomUUID ===
-            "function"
+        typeof crypto !== "undefined" &&
+        typeof crypto.randomUUID === "function"
     ) {
-        return globalThis.crypto.randomUUID();
+        return crypto.randomUUID();
     }
 
     return (
@@ -390,349 +125,452 @@ function createId() {
     );
 }
 
-function getStudentColor(index) {
-    return STUDENT_COLORS[
-        index %
-        STUDENT_COLORS.length
-    ];
+function clean(value) {
+    return String(value ?? "")
+        .normalize("NFKC")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
-function normalizeEmptyValue(value) {
-    const normalized =
-        String(value || "")
-            .trim();
-
-    return normalized === "-"
-        ? ""
-        : normalized;
+function comparable(value) {
+    return clean(value)
+        .toLocaleLowerCase("bg-BG");
 }
 
-function normalizeStoredTime(
-    value,
-    fallback
-) {
+function dateToKey(date) {
+    return [
+        date.getFullYear(),
+        String(
+            date.getMonth() + 1
+        ).padStart(2, "0"),
+        String(
+            date.getDate()
+        ).padStart(2, "0")
+    ].join("-");
+}
+
+function keyToDate(key) {
     const match =
-        /^(\d{1,2})(?::(\d{2}))?$/.exec(
-            String(value || "")
-                .trim()
-        );
+        /^(\d{4})-(\d{2})-(\d{2})$/
+            .exec(key);
 
     if (!match) {
-        return fallback;
+        return null;
     }
 
-    const hour =
-        Number(match[1]);
-
-    const minute =
-        Number(
-            match[2] || "00"
+    const date =
+        new Date(
+            Number(match[1]),
+            Number(match[2]) - 1,
+            Number(match[3])
         );
 
-    if (
-        hour < OPENING_HOUR ||
-        hour > CLOSING_HOUR
-    ) {
-        return fallback;
-    }
+    date.setHours(
+        0,
+        0,
+        0,
+        0
+    );
 
     if (
-        minute !== 0 &&
-        minute !== 30
+        date.getFullYear() !==
+            Number(match[1]) ||
+        date.getMonth() !==
+            Number(match[2]) - 1 ||
+        date.getDate() !==
+            Number(match[3])
     ) {
-        return fallback;
+        return null;
     }
 
-    if (
-        hour === CLOSING_HOUR &&
-        minute !== 0
-    ) {
-        return fallback;
+    return date;
+}
+
+function parseDate(value) {
+    const text =
+        clean(value)
+            .replace(
+                /^["']|["']$/g,
+                ""
+            );
+
+    let match =
+        /^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/
+            .exec(text);
+
+    if (match) {
+        const date =
+            new Date(
+                Number(match[1]),
+                Number(match[2]) - 1,
+                Number(match[3])
+            );
+
+        date.setHours(
+            0,
+            0,
+            0,
+            0
+        );
+
+        if (
+            date.getFullYear() ===
+                Number(match[1]) &&
+            date.getMonth() ===
+                Number(match[2]) - 1 &&
+            date.getDate() ===
+                Number(match[3])
+        ) {
+            return date;
+        }
     }
 
+    match =
+        /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/
+            .exec(text);
+
+    if (match) {
+        const date =
+            new Date(
+                Number(match[3]),
+                Number(match[2]) - 1,
+                Number(match[1])
+            );
+
+        date.setHours(
+            0,
+            0,
+            0,
+            0
+        );
+
+        if (
+            date.getFullYear() ===
+                Number(match[3]) &&
+            date.getMonth() ===
+                Number(match[2]) - 1 &&
+            date.getDate() ===
+                Number(match[1])
+        ) {
+            return date;
+        }
+    }
+
+    return null;
+}
+
+function isWeekend(date) {
     return (
-        String(hour).padStart(
-            2,
-            "0"
-        ) +
-        ":" +
-        String(minute).padStart(
-            2,
-            "0"
-        )
+        date.getDay() === 0 ||
+        date.getDay() === 6
     );
 }
 
-function isAllowedTime(value) {
+function isUnavailable(date) {
+    return (
+        date < today ||
+        isWeekend(date)
+    );
+}
+
+function timeToMinutes(value) {
     const match =
-        /^(\d{2}):(\d{2})$/.exec(
-            String(value)
-                .trim()
-        );
+        /^(\d{1,2}):(\d{2})$/
+            .exec(
+                String(value ?? "")
+            );
 
     if (!match) {
-        return false;
+        return null;
     }
 
-    const hour =
+    const hours =
         Number(match[1]);
 
-    const minute =
+    const minutes =
         Number(match[2]);
 
     if (
-        !Number.isInteger(hour) ||
-        !Number.isInteger(minute)
+        hours < 0 ||
+        hours > 23 ||
+        minutes < 0 ||
+        minutes > 59
     ) {
-        return false;
+        return null;
     }
-
-    if (
-        minute < 0 ||
-        minute > 59
-    ) {
-        return false;
-    }
-
-    const totalMinutes =
-        hour * 60 + minute;
-
-    const openingMinutes =
-        OPENING_HOUR * 60;
-
-    const closingMinutes =
-        CLOSING_HOUR * 60;
 
     return (
-        totalMinutes >= openingMinutes &&
-        totalMinutes <= closingMinutes
+        hours * 60 +
+        minutes
     );
 }
 
-function normalizeBooking(
-    rawBooking,
-    fallbackId
+function minutesToTime(total) {
+    if (
+        !Number.isFinite(total) ||
+        total < 0 ||
+        total > 24 * 60
+    ) {
+        return null;
+    }
+
+    const hours =
+        Math.floor(total / 60);
+
+    const minutes =
+        total % 60;
+
+    return (
+        String(hours).padStart(2, "0") +
+        ":" +
+        String(minutes).padStart(2, "0")
+    );
+}
+
+function parseHours(value) {
+    if (
+        value === null ||
+        value === undefined ||
+        String(value).trim() === ""
+    ) {
+        return null;
+    }
+
+    const hours =
+        Number(
+            String(value)
+                .trim()
+                .replace(",", ".")
+        );
+
+    return Number.isFinite(hours)
+        ? hours
+        : null;
+}
+
+function hoursBetween(
+    startTime,
+    endTime
 ) {
-    const booking =
-        rawBooking &&
-        typeof rawBooking === "object"
-            ? rawBooking
-            : {};
+    const start =
+        timeToMinutes(startTime);
+
+    const end =
+        timeToMinutes(endTime);
+
+    if (
+        start === null ||
+        end === null ||
+        end <= start
+    ) {
+        return null;
+    }
+
+    return (
+        end - start
+    ) / 60;
+}
+
+function endTimeFromHours(
+    startTime,
+    hoursValue
+) {
+    const start =
+        timeToMinutes(startTime);
+
+    const hours =
+        parseHours(hoursValue);
+
+    if (
+        start === null ||
+        hours === null ||
+        hours <= 0
+    ) {
+        return null;
+    }
+
+    const end =
+        start +
+        Math.round(hours * 60);
+
+    if (
+        end >
+        DAY_END
+    ) {
+        return null;
+    }
+
+    return minutesToTime(end);
+}
+
+function normalizeBooking(raw = {}) {
+    const startTime =
+        timeToMinutes(
+            raw.startTime
+        ) !== null
+            ? raw.startTime
+            : DEFAULT_START_TIME;
+
+    let hours =
+        parseHours(
+            raw.HoursForTheDay ??
+            raw.hoursForTheDay
+        );
+
+    let endTime =
+        timeToMinutes(
+            raw.endTime
+        ) !== null
+            ? raw.endTime
+            : null;
+
+    if (
+        hours === null &&
+        endTime
+    ) {
+        hours =
+            hoursBetween(
+                startTime,
+                endTime
+            );
+    }
+
+    if (
+        hours === null ||
+        hours <= 0
+    ) {
+        hours = 0.5;
+    }
+
+    if (!endTime) {
+        endTime =
+            endTimeFromHours(
+                startTime,
+                hours
+            ) ||
+            "09:30";
+    }
 
     return {
         id:
             String(
-                booking.id ||
-                fallbackId ||
+                raw.id ||
                 createId()
             ),
 
-        startTime:
-            normalizeStoredTime(
-                booking.startTime,
-                "08:00"
-            ),
-
-        endTime:
-            normalizeStoredTime(
-                booking.endTime,
-                "09:00"
-            ),
-
         firstName:
-            String(
-                booking.firstName ||
-                ""
-            ).trim(),
+            clean(raw.firstName),
 
         lastName:
-            String(
-                booking.lastName ||
-                ""
-            ).trim(),
+            clean(raw.lastName),
 
         facultyNumber:
-            normalizeEmptyValue(
-                booking.facultyNumber
+            clean(
+                raw.facultyNumber
             ),
 
         university:
-            normalizeEmptyValue(
-                booking.university
-            )
+            clean(raw.university),
+
+        startTime,
+
+        endTime,
+
+        HoursForTheDay:
+            hours,
+
+        mentor:
+            clean(raw.mentor)
     };
 }
 
-function migrateSchedule(rawData) {
-    const result = {};
+function normalizeDay(raw = {}) {
+    const bookings =
+        Array.isArray(
+            raw.bookings
+        )
+            ? raw.bookings
+            : [];
 
-    if (
-        !rawData ||
-        typeof rawData !== "object" ||
-        Array.isArray(rawData)
-    ) {
-        return result;
-    }
+    return {
+        dayName:
+            clean(raw.dayName),
 
-    Object.entries(
-        rawData
-    ).forEach(
-        function (
-            [dateKey, value]
-        ) {
-            if (
-                !parseDateKey(dateKey) ||
-                !value ||
-                typeof value !== "object"
-            ) {
-                return;
-            }
-
-            if (
-                Array.isArray(
-                    value.bookings
+        bookings:
+            bookings
+                .map(
+                    normalizeBooking
                 )
-            ) {
-                result[dateKey] = {
-                    dayName:
-                        normalizeEmptyValue(
-                            value.dayName
-                        ),
-
-                    bookings:
-                        value.bookings
-                            .map(
-                                function (
-                                    booking,
-                                    index
-                                ) {
-                                    return normalizeBooking(
-                                        booking,
-                                        dateKey +
-                                        "-" +
-                                        index
-                                    );
-                                }
-                            )
-                            .slice(
-                                0,
-                                MAX_STUDENTS_PER_DAY
-                            )
-                };
-
-                return;
-            }
-
-            const oldBookings =
-                Object.entries(
-                    value
-                ).map(
-                    function (
-                        [slot, student],
-                        index
-                    ) {
-                        const [
-                            startTime,
-                            endTime
-                        ] =
-                            slot.split(
-                                " - "
-                            );
-
-                        return normalizeBooking({
-                            id:
-                                dateKey +
-                                "-legacy-" +
-                                index,
-
-                            startTime,
-
-                            endTime,
-
-                            firstName:
-                                student
-                                    ?.firstName,
-
-                            lastName:
-                                student
-                                    ?.lastName,
-
-                            facultyNumber:
-                                student
-                                    ?.facultyNumber,
-
-                            university:
-                                student
-                                    ?.university
-                        });
+                .filter(
+                    function (booking) {
+                        return (
+                            booking.firstName &&
+                            booking.lastName
+                        );
                     }
-                );
-
-            result[dateKey] = {
-                dayName: "",
-
-                bookings:
-                    oldBookings.slice(
-                        0,
-                        MAX_STUDENTS_PER_DAY
-                    )
-            };
-        }
-    );
-
-    return result;
+                )
+                .slice(
+                    0,
+                    MAX_STUDENTS_PER_DAY
+                )
+    };
 }
 
-function readStorageValue(key) {
+function loadSchedule() {
     try {
-        const raw =
-            localStorage.getItem(
-                key
+        const parsed =
+            JSON.parse(
+                localStorage.getItem(
+                    STORAGE_KEY
+                ) ||
+                "{}"
             );
 
-        return raw
-            ? JSON.parse(raw)
-            : null;
+        if (
+            !parsed ||
+            typeof parsed !== "object" ||
+            Array.isArray(parsed)
+        ) {
+            return {};
+        }
+
+        const result = {};
+
+        Object.entries(
+            parsed
+        ).forEach(
+            function (
+                [dateKey, dayData]
+            ) {
+                if (
+                    keyToDate(dateKey)
+                ) {
+                    result[dateKey] =
+                        normalizeDay(
+                            dayData
+                        );
+                }
+            }
+        );
+
+        return result;
     } catch (error) {
         console.error(
-            "Грешка при четене от localStorage:",
+            "Грешка при зареждане от localStorage:",
             error
         );
 
-        return null;
+        return {};
     }
 }
 
-function loadScheduleFromStorage() {
-    const currentData =
-        readStorageValue(
-            STORAGE_KEY
-        );
-
-    if (currentData) {
-        return migrateSchedule(
-            currentData
-        );
-    }
-
-    return migrateSchedule(
-        readStorageValue(
-            LEGACY_STORAGE_KEY
-        )
-    );
-}
-
-function saveScheduleToStorage() {
+function saveSchedule() {
     try {
         localStorage.setItem(
             STORAGE_KEY,
             JSON.stringify(
                 schedule
             )
-        );
-
-        localStorage.removeItem(
-            LEGACY_STORAGE_KEY
         );
 
         return true;
@@ -742,118 +580,124 @@ function saveScheduleToStorage() {
             error
         );
 
-        showMessage(
-            "Браузърът не позволи запис в localStorage.",
-            "error"
-        );
-
         return false;
     }
 }
 
-function cleanupPastSchedule() {
-    const todayKey =
-        getTodayKey();
-
+function cleanupPastDays() {
     let changed = false;
 
     Object.keys(
         schedule
     ).forEach(
         function (dateKey) {
-            if (
-                !parseDateKey(dateKey) ||
-                dateKey < todayKey
-            ) {
-                delete schedule[
-                    dateKey
-                ];
+            const date =
+                keyToDate(dateKey);
 
+            if (
+                !date ||
+                date < today
+            ) {
+                delete schedule[dateKey];
                 changed = true;
             }
         }
     );
 
     if (changed) {
-        saveScheduleToStorage();
+        saveSchedule();
     }
 }
 
-function getExistingDayData(dateKey) {
-    const data =
-        schedule[dateKey];
-
+function getDay(dateKey) {
     if (
-        !data ||
-        typeof data !== "object"
+        !schedule[dateKey]
     ) {
-        return {
-            dayName: "",
-            bookings: []
-        };
-    }
-
-    return {
-        dayName:
-            String(
-                data.dayName ||
-                ""
-            ),
-
-        bookings:
-            Array.isArray(
-                data.bookings
-            )
-                ? data.bookings
-                : []
-    };
-}
-
-function getDayData(dateKey) {
-    if (!schedule[dateKey]) {
         schedule[dateKey] = {
             dayName: "",
             bookings: []
         };
     }
 
-    if (
-        !Array.isArray(
-            schedule[
-                dateKey
-            ].bookings
-        )
-    ) {
-        schedule[
-            dateKey
-        ].bookings = [];
-    }
+    schedule[dateKey] =
+        normalizeDay(
+            schedule[dateKey]
+        );
 
     return schedule[dateKey];
 }
 
-function getBookedCount(dateKey) {
-    return getExistingDayData(
-        dateKey
-    ).bookings.length;
-}
-
-function getDayClass(
-    dateKey,
-    dateObject
-) {
+function peekDay(dateKey) {
     if (
-        isWeekend(dateObject) ||
-        isPastDate(dateObject)
+        schedule[dateKey]
     ) {
-        return "unavailable-day";
+        return normalizeDay(
+            schedule[dateKey]
+        );
     }
 
-    const count =
-        getBookedCount(
-            dateKey
-        );
+    return {
+        dayName: "",
+        bookings: []
+    };
+}
 
+function bookingSignature(
+    dateKey,
+    booking
+) {
+    return [
+        dateKey,
+        comparable(
+            booking.firstName
+        ),
+        comparable(
+            booking.lastName
+        ),
+        comparable(
+            booking.facultyNumber
+        ),
+        comparable(
+            booking.university
+        ),
+        booking.startTime,
+        booking.endTime
+    ].join("|");
+}
+
+function bookingColor(
+    booking,
+    index
+) {
+    const text =
+        String(booking.id) +
+        booking.firstName +
+        booking.lastName;
+
+    let hash = 0;
+
+    for (
+        const character
+        of text
+    ) {
+        hash =
+            (
+                (hash << 5) -
+                hash +
+                character.charCodeAt(0)
+            ) |
+            0;
+    }
+
+    return BOOKING_COLORS[
+        Math.abs(
+            hash + index
+        ) %
+        BOOKING_COLORS.length
+    ];
+}
+
+function occupancyClass(count) {
     if (count === 0) {
         return "free-day";
     }
@@ -869,840 +713,127 @@ function getDayClass(
     return "full-booked";
 }
 
-function timeToMinutes(time) {
-    const [
-        hour,
-        minute
-    ] =
-        String(time)
-            .split(":")
-            .map(Number);
+function formatMonth(
+    year,
+    month
+) {
+    const value =
+        new Intl.DateTimeFormat(
+            "bg-BG",
+            {
+                month: "long",
+                year: "numeric"
+            }
+        ).format(
+            new Date(
+                year,
+                month,
+                1
+            )
+        );
 
     return (
-        hour * 60 +
-        minute
+        value
+            .charAt(0)
+            .toLocaleUpperCase(
+                "bg-BG"
+            ) +
+        value.slice(1)
     );
 }
 
-function sortBookings(bookings) {
-    return bookings
-        .slice()
-        .sort(
-            function (a, b) {
-                const startDifference =
-                    timeToMinutes(
-                        a.startTime
-                    ) -
-                    timeToMinutes(
-                        b.startTime
-                    );
-
-                if (
-                    startDifference !== 0
-                ) {
-                    return startDifference;
-                }
-
-                return (
-                    timeToMinutes(
-                        a.endTime
-                    ) -
-                    timeToMinutes(
-                        b.endTime
-                    )
-                );
-            }
-        );
-}
-
-function findBooking(
-    dateKey,
-    id
-) {
-    return getExistingDayData(
-        dateKey
-    ).bookings.find(
-        function (booking) {
-            return booking.id === id;
+function formatDate(date) {
+    return new Intl.DateTimeFormat(
+        "bg-BG",
+        {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric"
         }
-    );
+    ).format(date);
 }
 
 function populateTimeOptions() {
-    const times = [];
+    const startFragment =
+        document
+            .createDocumentFragment();
+
+    const endFragment =
+        document
+            .createDocumentFragment();
 
     for (
-        let hour =
-            OPENING_HOUR;
-        hour <=
-            CLOSING_HOUR;
-        hour++
+        let minutes = DAY_START;
+        minutes <= DAY_END;
+        minutes += 30
     ) {
-        times.push(
-            String(hour).padStart(
-                2,
-                "0"
-            ) +
-            ":00"
-        );
+        const time =
+            minutesToTime(minutes);
 
-        if (
-            hour <
-            CLOSING_HOUR
-        ) {
-            times.push(
-                String(hour).padStart(
-                    2,
-                    "0"
-                ) +
-                ":30"
-            );
-        }
-    }
-
-    [
-        startTimeInput,
-        endTimeInput
-    ].forEach(
-        function (select) {
-            select.replaceChildren();
-
-            const emptyOption =
-                document.createElement(
-                    "option"
-                );
-
-            emptyOption.value = "";
-
-            emptyOption.textContent =
-                "Избери час";
-
-            select.appendChild(
-                emptyOption
-            );
-
-            times.forEach(
-                function (time) {
-                    const option =
-                        document.createElement(
-                            "option"
-                        );
-
-                    option.value =
-                        time;
-
-                    option.textContent =
-                        time;
-
-                    select.appendChild(
-                        option
-                    );
-                }
-            );
-        }
-    );
-}
-
-function isCurrentMonthView() {
-    return (
-        currentYear ===
-            today.getFullYear() &&
-        currentMonth ===
-            today.getMonth()
-    );
-}
-
-function syncDetailsHeight() {
-    if (
-        window.innerWidth <= 1250
-    ) {
-        detailsBox.style.height =
-            "";
-
-        return;
-    }
-
-    const calendarHeight =
-        Math.ceil(
-            calendarBox
-                .getBoundingClientRect()
-                .height
-        );
-
-    detailsBox.style.height =
-        calendarHeight +
-        "px";
-}
-
-function renderCalendar() {
-    calendarDays.replaceChildren();
-
-    monthTitle.textContent =
-        monthNames[
-            currentMonth
-        ] +
-        " " +
-        currentYear;
-
-    prevMonthBtn.disabled =
-        isCurrentMonthView();
-
-    const firstDay =
-        new Date(
-            currentYear,
-            currentMonth,
-            1
-        );
-
-    const lastDay =
-        new Date(
-            currentYear,
-            currentMonth + 1,
-            0
-        );
-
-    const emptyCells =
-        getBulgarianDayIndex(
-            firstDay
-        );
-
-    for (
-        let index = 0;
-        index < emptyCells;
-        index++
-    ) {
-        const empty =
+        const startOption =
             document.createElement(
-                "div"
+                "option"
             );
 
-        empty.className =
-            "day empty";
+        startOption.value =
+            time;
 
-        empty.setAttribute(
-            "aria-hidden",
-            "true"
+        startOption.textContent =
+            time;
+
+        startOption.disabled =
+            minutes === DAY_END;
+
+        startFragment.appendChild(
+            startOption
         );
 
-        calendarDays.appendChild(
-            empty
-        );
-    }
-
-    for (
-        let day = 1;
-        day <=
-            lastDay.getDate();
-        day++
-    ) {
-        const dateObject =
-            new Date(
-                currentYear,
-                currentMonth,
-                day
-            );
-
-        const dateKey =
-            formatDate(
-                currentYear,
-                currentMonth,
-                day
-            );
-
-        const dayData =
-            getExistingDayData(
-                dateKey
-            );
-
-        const bookedCount =
-            getBookedCount(
-                dateKey
-            );
-
-        const unavailable =
-            isWeekend(dateObject) ||
-            isPastDate(dateObject);
-
-        const dayElement =
+        const endOption =
             document.createElement(
-                unavailable
-                    ? "div"
-                    : "button"
+                "option"
             );
 
-        dayElement.className =
-            "day " +
-            getDayClass(
-                dateKey,
-                dateObject
-            );
+        endOption.value =
+            time;
 
-        dayElement.dataset.date =
-            dateKey;
+        endOption.textContent =
+            time;
 
-        if (!unavailable) {
-            dayElement.type =
-                "button";
+        endOption.disabled =
+            minutes === DAY_START;
 
-            dayElement.setAttribute(
-                "aria-label",
-                dateKey +
-                ", " +
-                bookedCount +
-                " записани"
-            );
-        }
-
-        if (
-            selectedDate ===
-            dateKey
-        ) {
-            dayElement.classList.add(
-                "selected"
-            );
-        }
-
-        if (
-            dateKey ===
-            getTodayKey()
-        ) {
-            dayElement.classList.add(
-                "today"
-            );
-        }
-
-        const dayNameHtml =
-            dayData.dayName
-                ? `
-                    <small
-                        class="day-name-label"
-                        title="${escapeHtml(
-                            dayData.dayName
-                        )}"
-                    >
-                        ${escapeHtml(
-                            dayData.dayName
-                        )}
-                    </small>
-                `
-                : "";
-
-        let statusText =
-            bookedCount +
-            "/" +
-            MAX_STUDENTS_PER_DAY +
-            " човека";
-
-        if (
-            isPastDate(
-                dateObject
-            )
-        ) {
-            statusText =
-                "минал ден";
-        } else if (
-            isWeekend(
-                dateObject
-            )
-        ) {
-            statusText =
-                "почивен ден";
-        }
-
-        dayElement.innerHTML = `
-            <div class="day-number">
-                ${day}
-            </div>
-
-            ${dayNameHtml}
-
-            <small>
-                ${statusText}
-            </small>
-        `;
-
-        if (!unavailable) {
-            dayElement.addEventListener(
-                "click",
-                function () {
-                    selectDate(
-                        dateKey
-                    );
-                }
-            );
-        }
-
-        calendarDays.appendChild(
-            dayElement
+        endFragment.appendChild(
+            endOption
         );
     }
 
-    requestAnimationFrame(
-        syncDetailsHeight
+    startTimeInput.replaceChildren(
+        startFragment
     );
+
+    endTimeInput.replaceChildren(
+        endFragment
+    );
+
+    startTimeInput.value =
+        DEFAULT_START_TIME;
+
+    endTimeInput.value =
+        "09:30";
 }
 
-function createTooltipHtml(
-    booking
-) {
-    const fullName =
-        (
-            booking.firstName +
-            " " +
-            booking.lastName
-        ).trim() ||
-        "-";
-
-    return `
-        <span
-            class="student-tooltip"
-            role="tooltip"
-        >
-            <strong class="tooltip-name">
-                ${escapeHtml(
-                    fullName
-                )}
-            </strong>
-
-            <span class="tooltip-row">
-                <span class="tooltip-label">
-                    Час:
-                </span>
-
-                <span class="tooltip-value">
-                    ${escapeHtml(
-                        booking.startTime
-                    )}
-                    –
-                    ${escapeHtml(
-                        booking.endTime
-                    )}
-                </span>
-            </span>
-
-            <span class="tooltip-row">
-                <span class="tooltip-label">
-                    Фак. номер:
-                </span>
-
-                <span class="tooltip-value">
-                    ${escapeHtml(
-                        booking.facultyNumber ||
-                        "-"
-                    )}
-                </span>
-            </span>
-
-            <span class="tooltip-row">
-                <span class="tooltip-label">
-                    Университет:
-                </span>
-
-                <span class="tooltip-value">
-                    ${escapeHtml(
-                        booking.university ||
-                        "-"
-                    )}
-                </span>
-            </span>
-        </span>
-    `;
-}
-
-function buildTimelineGraph(
-    bookings
-) {
-    const totalMinutes =
-        (
-            CLOSING_HOUR -
-            OPENING_HOUR
-        ) *
-        60;
-
-    const hourHeight =
-        TIMELINE_HEIGHT /
-        (
-            CLOSING_HOUR -
-            OPENING_HOUR
-        );
-
-    const hourLabels = [];
-
-    for (
-        let hour =
-            OPENING_HOUR;
-        hour <=
-            CLOSING_HOUR;
-        hour++
-    ) {
-        const top =
-            TIMELINE_HEADER_HEIGHT +
-            (
-                hour -
-                OPENING_HOUR
-            ) *
-            hourHeight;
-
-        hourLabels.push(`
-            <div
-                class="time-cell"
-                style="top: ${top}px"
-            >
-                ${String(
-                    hour
-                ).padStart(
-                    2,
-                    "0"
-                )}:00
-            </div>
-        `);
-    }
-
-    const columns =
-        bookings
-            .map(
-                function (
-                    booking,
-                    index
-                ) {
-                    const openingMinutes =
-                        OPENING_HOUR *
-                        60;
-
-                    const closingMinutes =
-                        CLOSING_HOUR *
-                        60;
-
-                    const start =
-                        Math.max(
-                            timeToMinutes(
-                                booking.startTime
-                            ),
-                            openingMinutes
-                        );
-
-                    const end =
-                        Math.min(
-                            timeToMinutes(
-                                booking.endTime
-                            ),
-                            closingMinutes
-                        );
-
-                    const safeEnd =
-                        Math.max(
-                            end,
-                            start + 30
-                        );
-
-                    const top =
-                        (
-                            (
-                                start -
-                                openingMinutes
-                            ) /
-                            totalMinutes
-                        ) *
-                        TIMELINE_HEIGHT;
-
-                    const height =
-                        Math.max(
-                            (
-                                (
-                                    safeEnd -
-                                    start
-                                ) /
-                                totalMinutes
-                            ) *
-                            TIMELINE_HEIGHT,
-                            22
-                        );
-
-                    const fullName =
-                        (
-                            booking.firstName +
-                            " " +
-                            booking.lastName
-                        ).trim();
-
-                    const color =
-                        getStudentColor(
-                            index
-                        );
-
-                    return `
-                        <div class="person-column">
-                            <div
-                                class="person-name"
-                                title="${escapeHtml(
-                                    fullName
-                                )}"
-                            >
-                                ${escapeHtml(
-                                    booking.firstName ||
-                                    "№" +
-                                    (
-                                        index + 1
-                                    )
-                                )}
-                            </div>
-
-                            <div class="column-body">
-                                <button
-                                    type="button"
-                                    class="busy-block"
-                                    style="
-                                        top: ${top}px;
-                                        height: ${height}px;
-                                        --booking-color: ${color};
-                                    "
-                                >
-                                    <span class="busy-time-text">
-                                        ${escapeHtml(
-                                            booking.startTime
-                                        )}
-                                        –
-                                        ${escapeHtml(
-                                            booking.endTime
-                                        )}
-                                    </span>
-
-                                    ${createTooltipHtml(
-                                        booking
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }
-            )
-            .join("");
-
-    return `
-        <section class="timeline-section">
-            <div class="timeline-section-title">
-                <h4>
-                    Дневен график
-                </h4>
-
-                <span>
-                    08:00 – 18:00
-                </span>
-            </div>
-
-            <div class="timeline">
-                <div class="timeline-wrapper">
-                    <div
-                        class="time-scale"
-                        style="
-                            height: ${
-                                TIMELINE_HEIGHT +
-                                TIMELINE_HEADER_HEIGHT
-                            }px;
-                        "
-                    >
-                        ${hourLabels.join("")}
-                    </div>
-
-                    <div
-                        class="people-grid"
-                        style="
-                            --student-count: ${Math.max(
-                                bookings.length,
-                                1
-                            )};
-                        "
-                    >
-                        ${columns}
-                    </div>
-                </div>
-            </div>
-        </section>
-    `;
-}
-
-function buildBookingsList(
-    bookings
-) {
-    const cards =
-        bookings
-            .map(
-                function (booking) {
-                    return `
-                        <article class="preview-booking-card">
-                            <strong>
-                                ${escapeHtml(
-                                    booking.startTime
-                                )}
-                                –
-                                ${escapeHtml(
-                                    booking.endTime
-                                )}
-                            </strong>
-
-                            <span>
-                                ${escapeHtml(
-                                    booking.firstName
-                                )}
-                                ${escapeHtml(
-                                    booking.lastName
-                                )}
-                            </span>
-
-                            <small>
-                                ${escapeHtml(
-                                    booking.facultyNumber ||
-                                    "-"
-                                )}
-                                |
-                                ${escapeHtml(
-                                    booking.university ||
-                                    "-"
-                                )}
-                            </small>
-
-                            <div class="slot-actions">
-                                <button
-                                    type="button"
-                                    class="edit-booking-btn"
-                                    data-id="${escapeHtml(
-                                        booking.id
-                                    )}"
-                                >
-                                    Редактирай
-                                </button>
-
-                                <button
-                                    type="button"
-                                    class="delete-booking-btn"
-                                    data-id="${escapeHtml(
-                                        booking.id
-                                    )}"
-                                >
-                                    Премахни
-                                </button>
-                            </div>
-                        </article>
-                    `;
-                }
-            )
-            .join("");
-
-    return `
-        <section class="bookings-section">
-            <div class="bookings-section-header">
-                <h4>
-                    Записани студенти
-                </h4>
-
-                <span>
-                    ${bookings.length}
-                    /
-                    ${MAX_STUDENTS_PER_DAY}
-                </span>
-            </div>
-
-            <div class="booking-list">
-                ${cards}
-            </div>
-        </section>
-    `;
-}
-
-function renderSidePreview(
-    dateKey
-) {
-    const dateObject =
-        parseDateKey(
-            dateKey
-        );
-
-    if (!dateObject) {
-        sidePreview.innerHTML = `
-            <p class="empty-text">
-                Невалидна дата.
-            </p>
-        `;
-
-        return;
-    }
-
-    const dayData =
-        getExistingDayData(
-            dateKey
-        );
-
-    const bookings =
-        sortBookings(
-            dayData.bookings
-        );
-
-    const title =
-        dayData.dayName
-            ? " — " +
-            escapeHtml(
-                dayData.dayName
-            )
-            : "";
-
-    if (
-        bookings.length === 0
-    ) {
-        sidePreview.innerHTML = `
-            <h3>
-                ${escapeHtml(
-                    dateKey
-                )}
-                ${title}
-            </h3>
-
-            <p class="empty-text">
-                Няма записани хора.
-            </p>
-        `;
-
-        return;
-    }
-
-    sidePreview.innerHTML = `
-        <h3>
-            ${escapeHtml(
-                dateKey
-            )}
-            ${title}
-        </h3>
-
-        <p>
-            <strong>
-                Записани:
-            </strong>
-
-            ${bookings.length}
-            /
-            ${MAX_STUDENTS_PER_DAY}
-        </p>
-
-        ${buildTimelineGraph(
-            bookings
-        )}
-
-        ${buildBookingsList(
-            bookings
-        )}
-    `;
-}
-
-function setFormDisabled(
-    disabled
-) {
+function setFormDisabled(disabled) {
     [
         dayNameInput,
         startTimeInput,
         endTimeInput,
+        hoursForTheDayInput,
         firstNameInput,
         lastNameInput,
         facultyNumberInput,
         universityInput,
+        mentorInput,
         saveBtn
     ].forEach(
         function (element) {
@@ -1717,175 +848,322 @@ function setFormDisabled(
     );
 }
 
-function updateFormMode() {
-    const editing =
-        editingId !== null;
+function showFormMessage(
+    message = "",
+    type = ""
+) {
+    formMessage.textContent =
+        message;
 
-    formTitle.textContent =
-        editing
-            ? "Редактиране на запис"
-            : "Добавяне на студент";
+    formMessage.className =
+        "form-message";
 
-    saveBtn.textContent =
-        editing
-            ? "Запази промените"
-            : "Потвърди";
+    if (type) {
+        formMessage.classList.add(
+            type
+        );
+    }
+}
 
-    cancelEditBtn.hidden =
-        !editing;
+function showBulkMessage(
+    message = "",
+    type = ""
+) {
+    bulkMessage.textContent =
+        message;
+
+    bulkMessage.className =
+        "bulk-message";
+
+    if (type) {
+        bulkMessage.classList.add(
+            type
+        );
+    }
 }
 
 function clearStudentFields() {
-    startTimeInput.value = "";
-    endTimeInput.value = "";
+    dayNameInput.value =
+        selectedDate
+            ? peekDay(
+                selectedDate
+            ).dayName
+            : "";
+
+    startTimeInput.value =
+        DEFAULT_START_TIME;
+
+    endTimeInput.value =
+        "09:30";
+
+    hoursForTheDayInput.value =
+        "0.5";
+
     firstNameInput.value = "";
     lastNameInput.value = "";
     facultyNumberInput.value = "";
     universityInput.value = "";
+    mentorInput.value = "";
 }
 
-function showMessage(
-    text,
-    type = ""
-) {
-    formMessage.textContent =
-        text;
+function updateFormMode() {
+    const isEditing =
+        editingId !== null;
 
-    formMessage.className =
-        "form-message" +
-        (
-            type
-                ? " " + type
-                : ""
-        );
+    formTitle.textContent =
+        isEditing
+            ? "Редактиране на студент"
+            : "Добавяне на студент";
+
+    saveBtn.textContent =
+        isEditing
+            ? "Запази промените"
+            : "Потвърди";
+
+    cancelEditBtn.hidden =
+        !isEditing;
+
+    setFormDisabled(
+        !selectedDate
+    );
 }
 
-function showBulkMessage(
-    text,
-    type = ""
-) {
-    bulkMessage.textContent =
-        text;
-
-    bulkMessage.className =
-        "bulk-message" +
-        (
-            type
-                ? " " + type
-                : ""
-        );
-}
-
-function clearBulkResult() {
-    bulkResult.hidden =
-        true;
-
-    bulkAddedCount.textContent =
-        "0";
-
-    bulkSkippedCount.textContent =
-        "0";
-
-    bulkErrorCount.textContent =
-        "0";
-
-    bulkErrorList.replaceChildren();
-}
-
-function showBulkResult(result) {
-    bulkAddedCount.textContent =
-        String(
-            result.added
-        );
-
-    bulkSkippedCount.textContent =
-        String(
-            result.skipped
-        );
-
-    bulkErrorCount.textContent =
-        String(
-            result.errors.length
-        );
-
-    bulkErrorList.replaceChildren();
-
-    result.errors
-        .slice(0, 100)
-        .forEach(
-            function (errorText) {
-                const listItem =
-                    document.createElement(
-                        "li"
-                    );
-
-                listItem.textContent =
-                    errorText;
-
-                bulkErrorList.appendChild(
-                    listItem
-                );
-            }
-        );
-
+function syncDetailsHeight() {
     if (
-        result.errors.length > 100
+        window.matchMedia(
+            "(max-width: 1250px)"
+        ).matches
     ) {
-        const listItem =
+        detailsBox.style.height = "";
+        return;
+    }
+
+    const height =
+        calendarBox
+            .getBoundingClientRect()
+            .height;
+
+    if (height > 0) {
+        detailsBox.style.height =
+            Math.round(height) +
+            "px";
+    }
+}
+
+function renderCalendar() {
+    monthTitle.textContent =
+        formatMonth(
+            currentYear,
+            currentMonth
+        );
+
+    prevMonthBtn.disabled =
+        currentYear ===
+            today.getFullYear() &&
+        currentMonth ===
+            today.getMonth();
+
+    calendarDays.replaceChildren();
+
+    const firstDay =
+        new Date(
+            currentYear,
+            currentMonth,
+            1
+        );
+
+    const daysInMonth =
+        new Date(
+            currentYear,
+            currentMonth + 1,
+            0
+        ).getDate();
+
+    const emptyCells =
+        (
+            firstDay.getDay() +
+            6
+        ) %
+        7;
+
+    for (
+        let index = 0;
+        index < emptyCells;
+        index++
+    ) {
+        const empty =
             document.createElement(
-                "li"
+                "div"
             );
 
-        listItem.textContent =
-            "Показани са първите 100 грешки.";
+        empty.className =
+            "day empty";
 
-        bulkErrorList.appendChild(
-            listItem
+        calendarDays.appendChild(
+            empty
         );
     }
 
-    bulkErrorList.hidden =
-        result.errors.length === 0;
+    for (
+        let dayNumber = 1;
+        dayNumber <= daysInMonth;
+        dayNumber++
+    ) {
+        const date =
+            new Date(
+                currentYear,
+                currentMonth,
+                dayNumber
+            );
 
-    bulkResult.hidden =
-        false;
-}
+        date.setHours(
+            0,
+            0,
+            0,
+            0
+        );
 
-function resetSelectedDateState() {
-    selectedDate = null;
-    editingId = null;
+        const dateKey =
+            dateToKey(date);
 
-    selectedDateText.textContent =
-        "Изберете работен ден от календара.";
+        const dayData =
+            peekDay(dateKey);
 
-    sidePreview.innerHTML = `
-        <p class="empty-text">
-            Изберете ден, за да видите дневния график
-            и записаните студенти.
-        </p>
-    `;
+        const unavailable =
+            isUnavailable(date);
 
-    dayNameInput.value = "";
+        const button =
+            document.createElement(
+                "button"
+            );
 
-    clearStudentFields();
-    showMessage("");
-    updateFormMode();
-    setFormDisabled(true);
+        button.type =
+            "button";
 
-    detailsInnerScroll.scrollTop =
-        0;
+        button.className =
+            "day";
+
+        button.dataset.date =
+            dateKey;
+
+        if (unavailable) {
+            button.classList.add(
+                "unavailable-day"
+            );
+
+            button.disabled =
+                true;
+        } else {
+            button.classList.add(
+                occupancyClass(
+                    dayData.bookings.length
+                )
+            );
+        }
+
+        if (
+            date.getTime() ===
+            today.getTime()
+        ) {
+            button.classList.add(
+                "today"
+            );
+        }
+
+        if (
+            selectedDate ===
+            dateKey
+        ) {
+            button.classList.add(
+                "selected"
+            );
+        }
+
+        const number =
+            document.createElement(
+                "span"
+            );
+
+        number.className =
+            "day-number";
+
+        number.textContent =
+            String(dayNumber);
+
+        const status =
+            document.createElement(
+                "small"
+            );
+
+        if (unavailable) {
+            status.textContent =
+                "Недостъпен";
+        } else if (
+            dayData.bookings.length === 0
+        ) {
+            status.textContent =
+                "Свободен";
+        } else {
+            status.textContent =
+                dayData.bookings.length +
+                "/" +
+                MAX_STUDENTS_PER_DAY +
+                " студенти";
+        }
+
+        button.append(
+            number,
+            status
+        );
+
+        if (
+            !unavailable &&
+            dayData.dayName
+        ) {
+            const plan =
+                document.createElement(
+                    "small"
+                );
+
+            plan.className =
+                "day-name-label";
+
+            plan.textContent =
+                dayData.dayName;
+
+            button.appendChild(
+                plan
+            );
+        }
+
+        if (!unavailable) {
+            button.addEventListener(
+                "click",
+                function () {
+                    selectDate(
+                        dateKey
+                    );
+                }
+            );
+        }
+
+        calendarDays.appendChild(
+            button
+        );
+    }
+
+    requestAnimationFrame(
+        syncDetailsHeight
+    );
 }
 
 function selectDate(dateKey) {
     const date =
-        parseDateKey(
-            dateKey
-        );
+        keyToDate(dateKey);
 
     if (
         !date ||
-        isPastDate(date) ||
-        isWeekend(date)
+        isUnavailable(date)
     ) {
         return;
     }
@@ -1893,64 +1171,815 @@ function selectDate(dateKey) {
     selectedDate =
         dateKey;
 
-    editingId = null;
-
-    const dayData =
-        getDayData(
-            dateKey
-        );
+    editingId =
+        null;
 
     selectedDateText.textContent =
-        "Избрана дата: " +
-        dateKey;
-
-    dayNameInput.value =
-        dayData.dayName ||
-        "";
+        formatDate(date);
 
     clearStudentFields();
-    showMessage("");
+    showFormMessage();
     updateFormMode();
-    setFormDisabled(false);
+    renderSidePreview(dateKey);
+    renderCalendar();
+}
 
-    renderSidePreview(
-        dateKey
+function resetSelection() {
+    selectedDate = null;
+    editingId = null;
+
+    selectedDateText.textContent =
+        "Изберете работен ден от календара.";
+
+    sidePreview.innerHTML =
+        '<p class="empty-text">Изберете ден, за да видите дневния график и записаните студенти.</p>';
+
+    clearStudentFields();
+    showFormMessage();
+    updateFormMode();
+}
+
+function createTimeScale() {
+    const scale =
+        document.createElement(
+            "div"
+        );
+
+    scale.className =
+        "time-scale";
+
+    for (
+        let minutes = DAY_START;
+        minutes <= DAY_END;
+        minutes += 60
+    ) {
+        const label =
+            document.createElement(
+                "div"
+            );
+
+        label.className =
+            "time-cell";
+
+        const ratio =
+            (
+                minutes -
+                DAY_START
+            ) /
+            (
+                DAY_END -
+                DAY_START
+            );
+
+        label.style.top =
+            (
+                TIMELINE_HEADER_HEIGHT +
+                ratio *
+                TIMELINE_BODY_HEIGHT
+            ) +
+            "px";
+
+        label.textContent =
+            minutesToTime(minutes);
+
+        scale.appendChild(
+            label
+        );
+    }
+
+    return scale;
+}
+
+function tooltipRow(
+    label,
+    value
+) {
+    const row =
+        document.createElement(
+            "div"
+        );
+
+    row.className =
+        "tooltip-row";
+
+    const labelElement =
+        document.createElement(
+            "span"
+        );
+
+    labelElement.className =
+        "tooltip-label";
+
+    labelElement.textContent =
+        label;
+
+    const valueElement =
+        document.createElement(
+            "span"
+        );
+
+    valueElement.className =
+        "tooltip-value";
+
+    valueElement.textContent =
+        value ||
+        "—";
+
+    row.append(
+        labelElement,
+        valueElement
     );
 
-    renderCalendar();
+    return row;
+}
 
-    detailsInnerScroll.scrollTop =
-        0;
+function createPersonColumn(
+    booking,
+    index
+) {
+    const column =
+        document.createElement(
+            "div"
+        );
+
+    column.className =
+        "person-column";
+
+    const name =
+        document.createElement(
+            "div"
+        );
+
+    name.className =
+        "person-name";
+
+    name.textContent =
+        booking.firstName +
+        " " +
+        booking.lastName;
+
+    name.title =
+        name.textContent;
+
+    const body =
+        document.createElement(
+            "div"
+        );
+
+    body.className =
+        "column-body";
+
+    const start =
+        timeToMinutes(
+            booking.startTime
+        );
+
+    const end =
+        timeToMinutes(
+            booking.endTime
+        );
+
+    if (
+        start !== null &&
+        end !== null &&
+        end > start
+    ) {
+        const visibleStart =
+            Math.max(
+                DAY_START,
+                start
+            );
+
+        const visibleEnd =
+            Math.min(
+                DAY_END,
+                end
+            );
+
+        if (
+            visibleEnd >
+            visibleStart
+        ) {
+            const block =
+                document.createElement(
+                    "button"
+                );
+
+            block.type =
+                "button";
+
+            block.className =
+                "busy-block";
+
+            const topRatio =
+                (
+                    visibleStart -
+                    DAY_START
+                ) /
+                (
+                    DAY_END -
+                    DAY_START
+                );
+
+            const heightRatio =
+                (
+                    visibleEnd -
+                    visibleStart
+                ) /
+                (
+                    DAY_END -
+                    DAY_START
+                );
+
+            block.style.top =
+                (
+                    topRatio *
+                    TIMELINE_BODY_HEIGHT
+                ) +
+                "px";
+
+            block.style.height =
+                Math.max(
+                    heightRatio *
+                    TIMELINE_BODY_HEIGHT,
+                    22
+                ) +
+                "px";
+
+            block.style.setProperty(
+                "--booking-color",
+                bookingColor(
+                    booking,
+                    index
+                )
+            );
+
+            block.setAttribute(
+                "aria-label",
+                booking.firstName +
+                " " +
+                booking.lastName +
+                ", " +
+                booking.startTime +
+                "–" +
+                booking.endTime
+            );
+
+            const timeText =
+                document.createElement(
+                    "span"
+                );
+
+            timeText.className =
+                "busy-time-text";
+
+            timeText.textContent =
+                booking.startTime +
+                "–" +
+                booking.endTime;
+
+            const tooltip =
+                document.createElement(
+                    "span"
+                );
+
+            tooltip.className =
+                "student-tooltip";
+
+            const tooltipName =
+                document.createElement(
+                    "strong"
+                );
+
+            tooltipName.className =
+                "tooltip-name";
+
+            tooltipName.textContent =
+                booking.firstName +
+                " " +
+                booking.lastName;
+
+            tooltip.append(
+                tooltipName,
+
+                tooltipRow(
+                    "Час",
+                    booking.startTime +
+                    "–" +
+                    booking.endTime
+                ),
+
+                tooltipRow(
+                    "Часове",
+                    String(
+                        booking.HoursForTheDay
+                    )
+                ),
+
+                tooltipRow(
+                    "Фак. №",
+                    booking.facultyNumber
+                ),
+
+                tooltipRow(
+                    "Университет",
+                    booking.university
+                ),
+
+                tooltipRow(
+                    "Наставник",
+                    booking.mentor
+                )
+            );
+
+            block.append(
+                timeText,
+                tooltip
+            );
+
+            body.appendChild(
+                block
+            );
+        }
+    }
+
+    column.append(
+        name,
+        body
+    );
+
+    return column;
+}
+
+function createBookingCard(
+    booking,
+    index
+) {
+    const card =
+        document.createElement(
+            "article"
+        );
+
+    card.className =
+        "preview-booking-card";
+
+    card.style.borderLeftColor =
+        bookingColor(
+            booking,
+            index
+        );
+
+    const name =
+        document.createElement(
+            "strong"
+        );
+
+    name.textContent =
+        booking.firstName +
+        " " +
+        booking.lastName;
+
+    const time =
+        document.createElement(
+            "span"
+        );
+
+    time.textContent =
+        "Час: " +
+        booking.startTime +
+        "–" +
+        booking.endTime +
+        " (" +
+        booking.HoursForTheDay +
+        " ч.)";
+
+    const faculty =
+        document.createElement(
+            "small"
+        );
+
+    faculty.textContent =
+        "Факултетен номер: " +
+        (
+            booking.facultyNumber ||
+            "—"
+        );
+
+    const university =
+        document.createElement(
+            "small"
+        );
+
+    university.textContent =
+        "Университет: " +
+        (
+            booking.university ||
+            "—"
+        );
+
+    const mentor =
+        document.createElement(
+            "small"
+        );
+
+    mentor.textContent =
+        "Наставник: " +
+        (
+            booking.mentor ||
+            "—"
+        );
+
+    const actions =
+        document.createElement(
+            "div"
+        );
+
+    actions.className =
+        "slot-actions";
+
+    const editButton =
+        document.createElement(
+            "button"
+        );
+
+    editButton.type =
+        "button";
+
+    editButton.className =
+        "edit-booking-btn";
+
+    editButton.dataset.id =
+        booking.id;
+
+    editButton.textContent =
+        "Редактирай";
+
+    const deleteButton =
+        document.createElement(
+            "button"
+        );
+
+    deleteButton.type =
+        "button";
+
+    deleteButton.className =
+        "delete-booking-btn";
+
+    deleteButton.dataset.id =
+        booking.id;
+
+    deleteButton.textContent =
+        "Премахни";
+
+    actions.append(
+        editButton,
+        deleteButton
+    );
+
+    card.append(
+        name,
+        time,
+        faculty,
+        university,
+        mentor,
+        actions
+    );
+
+    return card;
+}
+
+function renderSidePreview(dateKey) {
+    const date =
+        keyToDate(dateKey);
+
+    if (!date) {
+        return;
+    }
+
+    const dayData =
+        peekDay(dateKey);
+
+    const bookings =
+        [...dayData.bookings]
+            .sort(
+                function (
+                    first,
+                    second
+                ) {
+                    return (
+                        timeToMinutes(
+                            first.startTime
+                        ) -
+                        timeToMinutes(
+                            second.startTime
+                        ) ||
+                        first.firstName
+                            .localeCompare(
+                                second.firstName,
+                                "bg-BG"
+                            ) ||
+                        first.lastName
+                            .localeCompare(
+                                second.lastName,
+                                "bg-BG"
+                            )
+                    );
+                }
+            );
+
+    sidePreview.replaceChildren();
+
+    const plan =
+        document.createElement(
+            "h3"
+        );
+
+    plan.textContent =
+        dayData.dayName ||
+        "Няма зададен план за деня";
+
+    sidePreview.appendChild(
+        plan
+    );
+
+    if (
+        bookings.length === 0
+    ) {
+        const empty =
+            document.createElement(
+                "p"
+            );
+
+        empty.className =
+            "empty-text";
+
+        empty.textContent =
+            "За този ден няма записани студенти.";
+
+        sidePreview.appendChild(
+            empty
+        );
+
+        return;
+    }
+
+    const timelineSection =
+        document.createElement(
+            "section"
+        );
+
+    timelineSection.className =
+        "timeline-section";
+
+    const timelineHeader =
+        document.createElement(
+            "div"
+        );
+
+    timelineHeader.className =
+        "timeline-section-title";
+
+    const timelineTitle =
+        document.createElement(
+            "h4"
+        );
+
+    timelineTitle.textContent =
+        "Дневен график";
+
+    const timelineCount =
+        document.createElement(
+            "span"
+        );
+
+    timelineCount.textContent =
+        bookings.length +
+        "/" +
+        MAX_STUDENTS_PER_DAY +
+        " студенти";
+
+    timelineHeader.append(
+        timelineTitle,
+        timelineCount
+    );
+
+    const timeline =
+        document.createElement(
+            "div"
+        );
+
+    timeline.className =
+        "timeline";
+
+    const timelineWrapper =
+        document.createElement(
+            "div"
+        );
+
+    timelineWrapper.className =
+        "timeline-wrapper";
+
+    const peopleGrid =
+        document.createElement(
+            "div"
+        );
+
+    peopleGrid.className =
+        "people-grid";
+
+    peopleGrid.style.setProperty(
+        "--student-count",
+        String(
+            Math.max(
+                bookings.length,
+                1
+            )
+        )
+    );
+
+    bookings.forEach(
+        function (
+            booking,
+            index
+        ) {
+            peopleGrid.appendChild(
+                createPersonColumn(
+                    booking,
+                    index
+                )
+            );
+        }
+    );
+
+    timelineWrapper.append(
+        createTimeScale(),
+        peopleGrid
+    );
+
+    timeline.appendChild(
+        timelineWrapper
+    );
+
+    timelineSection.append(
+        timelineHeader,
+        timeline
+    );
+
+    const bookingsSection =
+        document.createElement(
+            "section"
+        );
+
+    bookingsSection.className =
+        "bookings-section";
+
+    const bookingsHeader =
+        document.createElement(
+            "div"
+        );
+
+    bookingsHeader.className =
+        "bookings-section-header";
+
+    const bookingsTitle =
+        document.createElement(
+            "h4"
+        );
+
+    bookingsTitle.textContent =
+        "Записани студенти";
+
+    const bookingsCount =
+        document.createElement(
+            "span"
+        );
+
+    bookingsCount.textContent =
+        String(
+            bookings.length
+        );
+
+    bookingsHeader.append(
+        bookingsTitle,
+        bookingsCount
+    );
+
+    const bookingList =
+        document.createElement(
+            "div"
+        );
+
+    bookingList.className =
+        "booking-list";
+
+    bookings.forEach(
+        function (
+            booking,
+            index
+        ) {
+            bookingList.appendChild(
+                createBookingCard(
+                    booking,
+                    index
+                )
+            );
+        }
+    );
+
+    bookingsSection.append(
+        bookingsHeader,
+        bookingList
+    );
+
+    sidePreview.append(
+        timelineSection,
+        bookingsSection
+    );
 }
 
 function validateForm(dayData) {
-    if (!selectedDate) {
-        return "Изберете дата.";
-    }
+    const firstName =
+        clean(
+            firstNameInput.value
+        );
 
-    if (
-        !startTimeInput.value ||
-        !endTimeInput.value
-    ) {
-        return "Попълнете начален и краен час.";
-    }
+    const lastName =
+        clean(
+            lastNameInput.value
+        );
 
-    if (
+    const mentor =
+        clean(
+            mentorInput.value
+        );
+
+    const start =
         timeToMinutes(
             startTimeInput.value
-        ) >=
+        );
+
+    const end =
         timeToMinutes(
             endTimeInput.value
-        )
-    ) {
-        return "Крайният час трябва да бъде след началния.";
+        );
+
+    const hours =
+        parseHours(
+            hoursForTheDayInput.value
+        );
+
+    if (!firstName) {
+        return "Въведете име.";
+    }
+
+    if (!lastName) {
+        return "Въведете фамилия.";
+    }
+
+    if (!mentor) {
+        return "Въведете наставник.";
     }
 
     if (
-        !firstNameInput.value.trim() ||
-        !lastNameInput.value.trim()
+        start === null ||
+        end === null ||
+        start < DAY_START ||
+        end > DAY_END ||
+        end <= start
     ) {
-        return "Попълнете име и фамилия.";
+        return "Изберете валиден часови диапазон между 08:00 и 18:00.";
+    }
+
+    if (
+        hours === null ||
+        hours < 0.5 ||
+        hours > 10 ||
+        Math.abs(
+            hours * 2 -
+            Math.round(
+                hours * 2
+            )
+        ) >
+            0.0001
+    ) {
+        return "Часовете за деня трябва да са от 0.5 до 10 през стъпка 0.5.";
+    }
+
+    const calculatedHours =
+        hoursBetween(
+            startTimeInput.value,
+            endTimeInput.value
+        );
+
+    if (
+        calculatedHours === null ||
+        Math.abs(
+            calculatedHours -
+            hours
+        ) >
+            0.0001
+    ) {
+        return "Часовият диапазон не съвпада с въведените часове за деня.";
     }
 
     if (
@@ -1958,683 +1987,29 @@ function validateForm(dayData) {
         dayData.bookings.length >=
             MAX_STUDENTS_PER_DAY
     ) {
-        return "За един ден могат да бъдат записани най-много 10 човека.";
+        return "За този ден вече са добавени максималните 10 студенти.";
     }
 
     return "";
 }
 
-function getBookingSignature(
+function findBooking(
     dateKey,
-    booking
+    id
 ) {
-    return [
-        dateKey,
-
-        String(
-            booking.firstName ||
-            ""
-        )
-            .trim()
-            .toLocaleLowerCase(),
-
-        String(
-            booking.lastName ||
-            ""
-        )
-            .trim()
-            .toLocaleLowerCase(),
-
-        String(
-            booking.facultyNumber ||
-            ""
-        )
-            .trim()
-            .toLocaleLowerCase(),
-
-        booking.startTime,
-
-        booking.endTime
-    ].join("|");
-}
-
-function isHeaderRecord(columns) {
-    const joined =
-        columns
-            .join(",")
-            .toLocaleLowerCase();
-
     return (
-        joined.includes(
-            "факултетен номер"
-        ) &&
-        joined.includes(
-            "университет"
-        )
-    );
-}
-
-function splitBulkRecords(text) {
-    const source =
-        String(text)
-            .replaceAll(
-                "\r\n",
-                "\n"
-            )
-            .replaceAll(
-                "\r",
-                "\n"
-            );
-
-    const records = [];
-    const separatorPattern =
-        /[;\n]+/g;
-
-    let recordStart = 0;
-    let match;
-
-    while (
-        (match = separatorPattern.exec(source)) !== null
-    ) {
-        const rawRecord =
-            source.slice(
-                recordStart,
-                match.index
-            );
-
-        const trimmedRecord =
-            rawRecord.trim();
-
-        if (trimmedRecord) {
-            const leadingWhitespace =
-                rawRecord.length -
-                rawRecord.trimStart().length;
-
-            const trailingWhitespace =
-                rawRecord.length -
-                rawRecord.trimEnd().length;
-
-            records.push({
-                text: trimmedRecord,
-                start: recordStart + leadingWhitespace,
-                end: match.index - trailingWhitespace
-            });
-        }
-
-        recordStart =
-            match.index + match[0].length;
-    }
-
-    const finalRawRecord =
-        source.slice(recordStart);
-
-    const finalTrimmedRecord =
-        finalRawRecord.trim();
-
-    if (finalTrimmedRecord) {
-        const leadingWhitespace =
-            finalRawRecord.length -
-            finalRawRecord.trimStart().length;
-
-        const trailingWhitespace =
-            finalRawRecord.length -
-            finalRawRecord.trimEnd().length;
-
-        records.push({
-            text: finalTrimmedRecord,
-            start: recordStart + leadingWhitespace,
-            end: source.length - trailingWhitespace
-        });
-    }
-
-    return {
-        source,
-        records
-    };
-}
-
-function escapeHighlightHtml(value) {
-    return String(value)
-        .replaceAll(
-            "&",
-            "&amp;"
-        )
-        .replaceAll(
-            "<",
-            "&lt;"
-        )
-        .replaceAll(
-            ">",
-            "&gt;"
-        );
-}
-
-function clearBulkHighlights() {
-    bulkEditor.classList.remove(
-        "has-results"
-    );
-
-    bulkHighlightLayer.textContent =
-        "";
-
-    bulkHighlightLayer.scrollTop = 0;
-    bulkHighlightLayer.scrollLeft = 0;
-}
-
-function renderBulkHighlights(
-    source,
-    records,
-    recordStates
-) {
-    let cursor = 0;
-    const htmlParts = [];
-
-    records.forEach(
-        function (record, index) {
-            htmlParts.push(
-                escapeHighlightHtml(
-                    source.slice(
-                        cursor,
-                        record.start
-                    )
-                )
-            );
-
-            const state =
-                recordStates.get(index + 1) ||
-                "error";
-
-            htmlParts.push(
-                '<mark class="bulk-record-highlight ' +
-                state +
-                '">'
-            );
-
-            htmlParts.push(
-                escapeHighlightHtml(
-                    source.slice(
-                        record.start,
-                        record.end
-                    )
-                )
-            );
-
-            htmlParts.push("</mark>");
-            cursor = record.end;
-        }
-    );
-
-    htmlParts.push(
-        escapeHighlightHtml(
-            source.slice(cursor)
-        )
-    );
-
-    bulkHighlightLayer.innerHTML =
-        htmlParts.join("");
-
-    bulkEditor.classList.add(
-        "has-results"
-    );
-
-    bulkHighlightLayer.scrollTop =
-        bulkStudentsInput.scrollTop;
-
-    bulkHighlightLayer.scrollLeft =
-        bulkStudentsInput.scrollLeft;
-}
-
-function parseBulkRecord(
-    record,
-    recordNumber
-) {
-    const columns =
-        record
-            .split(",")
-            .map(
-                function (value) {
-                    return value.trim();
-                }
-            );
-
-    if (
-        isHeaderRecord(
-            columns
-        )
-    ) {
-        return {
-            type: "header"
-        };
-    }
-
-    let dateKey = "";
-    let dayName = "";
-    let firstName = "";
-    let lastName = "";
-    let facultyNumber = "";
-    let university = "";
-    let startTime = "";
-    let endTime = "";
-
-    if (
-        columns.length === 6
-    ) {
-        if (!selectedDate) {
-            return {
-                type: "error",
-
-                message:
-                    "Запис " +
-                    recordNumber +
-                    ": форматът с 6 атрибута изисква избрана дата."
-            };
-        }
-
-        dateKey =
-            selectedDate;
-
-        [
-            firstName,
-            lastName,
-            facultyNumber,
-            university,
-            startTime,
-            endTime
-        ] = columns;
-    } else if (
-        columns.length === 7
-    ) {
-        [
-            dateKey,
-            firstName,
-            lastName,
-            facultyNumber,
-            university,
-            startTime,
-            endTime
-        ] = columns;
-    } else if (
-        columns.length === 8
-    ) {
-        [
-            dateKey,
-            dayName,
-            firstName,
-            lastName,
-            facultyNumber,
-            university,
-            startTime,
-            endTime
-        ] = columns;
-    } else {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": очакват се 6, 7 или 8 атрибута, разделени със запетая."
-        };
-    }
-
-    const date =
-        parseDateKey(
-            dateKey
-        );
-
-    if (!date) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": невалидна дата."
-        };
-    }
-
-    if (
-        isPastDate(date)
-    ) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": датата е в миналото."
-        };
-    }
-
-    if (
-        isWeekend(date)
-    ) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": датата е почивен ден."
-        };
-    }
-
-    if (
-        !firstName ||
-        !lastName
-    ) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": липсва име или фамилия."
-        };
-    }
-
-    if (
-        !isAllowedTime(
-            startTime
-        ) ||
-        !isAllowedTime(
-            endTime
-        )
-    ) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": часовете трябва да са между 08:00 и 18:00."
-        };
-    }
-
-    if (
-        timeToMinutes(
-            startTime
-        ) >=
-        timeToMinutes(
-            endTime
-        )
-    ) {
-        return {
-            type: "error",
-
-            message:
-                "Запис " +
-                recordNumber +
-                ": крайният час трябва да бъде след началния."
-        };
-    }
-
-    return {
-        type: "student",
-
-        recordNumber,
-
-        dateKey,
-
-        dayName:
-            normalizeEmptyValue(
-                dayName
-            ),
-
-        booking: {
-            id: createId(),
-
-            firstName:
-                firstName.trim(),
-
-            lastName:
-                lastName.trim(),
-
-            facultyNumber:
-                normalizeEmptyValue(
-                    facultyNumber
-                ),
-
-            university:
-                normalizeEmptyValue(
-                    university
-                ),
-
-            startTime:
-                startTime.trim(),
-
-            endTime:
-                endTime.trim()
-        }
-    };
-}
-
-function addStudentsFromList() {
-    const rawText =
-        bulkStudentsInput.value;
-
-    const text =
-        rawText.trim();
-
-    showBulkMessage("");
-    clearBulkResult();
-    clearBulkHighlights();
-
-    if (!text) {
-        showBulkMessage(
-            "Поставете списък със студенти.",
-            "error"
-        );
-
-        return;
-    }
-
-    const splitResult =
-        splitBulkRecords(rawText);
-
-    const records =
-        splitResult.records;
-
-    if (records.length === 0) {
-        showBulkMessage(
-            "Списъкът е празен.",
-            "error"
-        );
-
-        return;
-    }
-
-    const result = {
-        added: 0,
-        skipped: 0,
-        errors: []
-    };
-
-    const recordStates = new Map();
-    const parsedStudents = [];
-
-    records.forEach(
-        function (record, index) {
-            const recordNumber = index + 1;
-            const parsed =
-                parseBulkRecord(
-                    record.text,
-                    recordNumber
-                );
-
-            if (parsed.type === "header") {
-                result.skipped++;
-                recordStates.set(
-                    recordNumber,
-                    "skipped"
-                );
-
-                return;
-            }
-
-            if (parsed.type === "error") {
-                result.errors.push(parsed.message);
-                recordStates.set(
-                    recordNumber,
-                    "error"
-                );
-
-                return;
-            }
-
-            parsedStudents.push(parsed);
-        }
-    );
-
-    const knownSignatures = new Set();
-
-    Object.entries(schedule).forEach(
-        function ([dateKey, dayData]) {
-            const bookings =
-                Array.isArray(dayData.bookings)
-                    ? dayData.bookings
-                    : [];
-
-            bookings.forEach(
+        getDay(dateKey)
+            .bookings
+            .find(
                 function (booking) {
-                    knownSignatures.add(
-                        getBookingSignature(
-                            dateKey,
-                            booking
-                        )
+                    return (
+                        String(booking.id) ===
+                        String(id)
                     );
                 }
-            );
-        }
+            ) ||
+        null
     );
-
-    const additionsByDate = new Map();
-
-    parsedStudents.forEach(
-        function (parsed) {
-            const signature =
-                getBookingSignature(
-                    parsed.dateKey,
-                    parsed.booking
-                );
-
-            if (knownSignatures.has(signature)) {
-                result.skipped++;
-                result.errors.push(
-                    "Запис " +
-                    parsed.recordNumber +
-                    ": дублиран студент или часови диапазон."
-                );
-
-                recordStates.set(
-                    parsed.recordNumber,
-                    "error"
-                );
-
-                return;
-            }
-
-            if (!additionsByDate.has(parsed.dateKey)) {
-                additionsByDate.set(parsed.dateKey, []);
-            }
-
-            additionsByDate
-                .get(parsed.dateKey)
-                .push(parsed);
-
-            knownSignatures.add(signature);
-        }
-    );
-
-    additionsByDate.forEach(
-        function (additions, dateKey) {
-            const dayData = getDayData(dateKey);
-            let availablePlaces =
-                MAX_STUDENTS_PER_DAY -
-                dayData.bookings.length;
-
-            additions.forEach(
-                function (parsed) {
-                    if (availablePlaces <= 0) {
-                        result.skipped++;
-                        result.errors.push(
-                            "Запис " +
-                            parsed.recordNumber +
-                            ": няма свободно място за " +
-                            dateKey +
-                            "."
-                        );
-
-                        recordStates.set(
-                            parsed.recordNumber,
-                            "error"
-                        );
-
-                        return;
-                    }
-
-                    if (
-                        parsed.dayName &&
-                        !dayData.dayName
-                    ) {
-                        dayData.dayName =
-                            parsed.dayName;
-                    }
-
-                    dayData.bookings.push(
-                        parsed.booking
-                    );
-
-                    availablePlaces--;
-                    result.added++;
-                    recordStates.set(
-                        parsed.recordNumber,
-                        "success"
-                    );
-                }
-            );
-        }
-    );
-
-    if (result.added > 0) {
-        saveScheduleToStorage();
-        renderCalendar();
-
-        if (selectedDate) {
-            renderSidePreview(selectedDate);
-        }
-
-        showBulkMessage(
-            "Добавени са " +
-            result.added +
-            " студенти. Успешните записи са маркирани в зелено.",
-            "success"
-        );
-    } else {
-        showBulkMessage(
-            "Не бяха добавени нови студенти. Провери записите, маркирани в червено.",
-            "error"
-        );
-    }
-
-    parsedStudents.forEach(
-        function (parsed) {
-            if (!recordStates.has(parsed.recordNumber)) {
-                recordStates.set(
-                    parsed.recordNumber,
-                    "error"
-                );
-            }
-        }
-    );
-
-    renderBulkHighlights(
-        splitResult.source,
-        records,
-        recordStates
-    );
-
-    showBulkResult(result);
 }
 
 studentForm.addEventListener(
@@ -2643,7 +2018,7 @@ studentForm.addEventListener(
         event.preventDefault();
 
         if (!selectedDate) {
-            showMessage(
+            showFormMessage(
                 "Изберете дата.",
                 "error"
             );
@@ -2652,50 +2027,78 @@ studentForm.addEventListener(
         }
 
         const dayData =
-            getDayData(
+            getDay(
                 selectedDate
             );
 
-        const error =
+        const validationError =
             validateForm(
                 dayData
             );
 
-        if (error) {
-            showMessage(
-                error,
+        if (validationError) {
+            showFormMessage(
+                validationError,
                 "error"
             );
 
             return;
         }
 
+        const backup =
+            JSON.parse(
+                JSON.stringify(
+                    schedule
+                )
+            );
+
+        const wasEditing =
+            editingId !== null;
+
         dayData.dayName =
-            dayNameInput.value.trim();
+            clean(
+                dayNameInput.value
+            );
 
         const bookingData = {
+            firstName:
+                clean(
+                    firstNameInput.value
+                ),
+
+            lastName:
+                clean(
+                    lastNameInput.value
+                ),
+
+            facultyNumber:
+                clean(
+                    facultyNumberInput.value
+                ),
+
+            university:
+                clean(
+                    universityInput.value
+                ),
+
             startTime:
                 startTimeInput.value,
 
             endTime:
                 endTimeInput.value,
 
-            firstName:
-                firstNameInput.value.trim(),
+            HoursForTheDay:
+                parseHours(
+                    hoursForTheDayInput.value
+                ),
 
-            lastName:
-                lastNameInput.value.trim(),
-
-            facultyNumber:
-                facultyNumberInput.value.trim(),
-
-            university:
-                universityInput.value.trim()
+            mentor:
+                clean(
+                    mentorInput.value
+                )
         };
 
-        if (
-            editingId !== null
-        ) {
+        if (wasEditing) {
             const booking =
                 findBooking(
                     selectedDate,
@@ -2703,8 +2106,35 @@ studentForm.addEventListener(
                 );
 
             if (!booking) {
-                showMessage(
+                showFormMessage(
                     "Записът не съществува.",
+                    "error"
+                );
+
+                return;
+            }
+
+            const duplicate =
+                dayData.bookings.some(
+                    function (item) {
+                        return (
+                            String(item.id) !==
+                                String(editingId) &&
+                            bookingSignature(
+                                selectedDate,
+                                item
+                            ) ===
+                                bookingSignature(
+                                    selectedDate,
+                                    bookingData
+                                )
+                        );
+                    }
+                );
+
+            if (duplicate) {
+                showFormMessage(
+                    "Този студент и часови диапазон вече съществуват.",
                     "error"
                 );
 
@@ -2717,14 +2147,9 @@ studentForm.addEventListener(
             );
 
             editingId = null;
-
-            showMessage(
-                "Записът е редактиран.",
-                "success"
-            );
         } else {
             const signature =
-                getBookingSignature(
+                bookingSignature(
                     selectedDate,
                     bookingData
                 );
@@ -2733,7 +2158,7 @@ studentForm.addEventListener(
                 dayData.bookings.some(
                     function (booking) {
                         return (
-                            getBookingSignature(
+                            bookingSignature(
                                 selectedDate,
                                 booking
                             ) ===
@@ -2743,7 +2168,7 @@ studentForm.addEventListener(
                 );
 
             if (duplicate) {
-                showMessage(
+                showFormMessage(
                     "Този студент и часови диапазон вече съществуват.",
                     "error"
                 );
@@ -2755,14 +2180,26 @@ studentForm.addEventListener(
                 id: createId(),
                 ...bookingData
             });
-
-            showMessage(
-                "Студентът е добавен.",
-                "success"
-            );
         }
 
-        saveScheduleToStorage();
+        if (!saveSchedule()) {
+            schedule =
+                backup;
+
+            showFormMessage(
+                "Записът в localStorage беше неуспешен. Промените не са запазени.",
+                "error"
+            );
+
+            return;
+        }
+
+        showFormMessage(
+            wasEditing
+                ? "Записът е редактиран."
+                : "Студентът е добавен.",
+            "success"
+        );
 
         clearStudentFields();
         updateFormMode();
@@ -2790,13 +2227,22 @@ function startEditBooking(id) {
         return;
     }
 
-    editingId = id;
+    editingId =
+        id;
+
+    dayNameInput.value =
+        peekDay(
+            selectedDate
+        ).dayName;
 
     startTimeInput.value =
         booking.startTime;
 
     endTimeInput.value =
         booking.endTime;
+
+    hoursForTheDayInput.value =
+        booking.HoursForTheDay;
 
     firstNameInput.value =
         booking.firstName;
@@ -2809,6 +2255,9 @@ function startEditBooking(id) {
 
     universityInput.value =
         booking.university;
+
+    mentorInput.value =
+        booking.mentor;
 
     updateFormMode();
 
@@ -2824,14 +2273,17 @@ function removeBooking(id) {
     }
 
     const dayData =
-        getDayData(
+        getDay(
             selectedDate
         );
 
     const booking =
         dayData.bookings.find(
             function (item) {
-                return item.id === id;
+                return (
+                    String(item.id) ===
+                    String(id)
+                );
             }
         );
 
@@ -2852,15 +2304,26 @@ function removeBooking(id) {
         return;
     }
 
+    const backup =
+        JSON.parse(
+            JSON.stringify(
+                schedule
+            )
+        );
+
     dayData.bookings =
         dayData.bookings.filter(
             function (item) {
-                return item.id !== id;
+                return (
+                    String(item.id) !==
+                    String(id)
+                );
             }
         );
 
     if (
-        editingId === id
+        String(editingId) ===
+        String(id)
     ) {
         editingId = null;
 
@@ -2868,7 +2331,17 @@ function removeBooking(id) {
         updateFormMode();
     }
 
-    saveScheduleToStorage();
+    if (!saveSchedule()) {
+        schedule =
+            backup;
+
+        showFormMessage(
+            "Записът не беше премахнат, защото localStorage не можа да бъде обновен.",
+            "error"
+        );
+
+        return;
+    }
 
     renderSidePreview(
         selectedDate
@@ -2906,6 +2379,1137 @@ sidePreview.addEventListener(
     }
 );
 
+function splitBulkRecords(source) {
+    const records = [];
+
+    let start = 0;
+    let inQuotes = false;
+
+    function addRecord(
+        rawStart,
+        rawEnd
+    ) {
+        let contentStart =
+            rawStart;
+
+        let contentEnd =
+            rawEnd;
+
+        while (
+            contentStart <
+                contentEnd &&
+            /\s/.test(
+                source[contentStart]
+            )
+        ) {
+            contentStart++;
+        }
+
+        while (
+            contentEnd >
+                contentStart &&
+            /\s/.test(
+                source[
+                    contentEnd - 1
+                ]
+            )
+        ) {
+            contentEnd--;
+        }
+
+        if (
+            contentStart <
+            contentEnd
+        ) {
+            records.push({
+                start:
+                    contentStart,
+
+                end:
+                    contentEnd,
+
+                text:
+                    source.slice(
+                        contentStart,
+                        contentEnd
+                    )
+            });
+        }
+    }
+
+    for (
+        let index = 0;
+        index < source.length;
+        index++
+    ) {
+        const character =
+            source[index];
+
+        if (
+            character === '"'
+        ) {
+            if (
+                inQuotes &&
+                source[index + 1] === '"'
+            ) {
+                index++;
+            } else {
+                inQuotes =
+                    !inQuotes;
+            }
+
+            continue;
+        }
+
+        if (
+            !inQuotes &&
+            (
+                character === ";" ||
+                character === "\n" ||
+                character === "\r"
+            )
+        ) {
+            addRecord(
+                start,
+                index
+            );
+
+            if (
+                character === "\r" &&
+                source[index + 1] === "\n"
+            ) {
+                index++;
+            }
+
+            start =
+                index + 1;
+        }
+    }
+
+    addRecord(
+        start,
+        source.length
+    );
+
+    return {
+        source,
+        records
+    };
+}
+
+function parseFields(recordText) {
+    let text =
+        String(recordText)
+            .replace(
+                /^```[\w-]*\s*/i,
+                ""
+            )
+            .replace(
+                /\s*```$/i,
+                ""
+            )
+            .replace(
+                /^\s*(?:[-*•]\s+|\d+[.)]\s+)/,
+                ""
+            )
+            .trim();
+
+    if (!text) {
+        return [];
+    }
+
+    if (
+        text.startsWith("|") &&
+        text.endsWith("|")
+    ) {
+        return text
+            .slice(1, -1)
+            .split("|")
+            .map(clean);
+    }
+
+    if (
+        text.includes("\t") &&
+        !text.includes(",")
+    ) {
+        return text
+            .split("\t")
+            .map(clean);
+    }
+
+    if (
+        text.includes("|") &&
+        !text.includes(",")
+    ) {
+        return text
+            .split("|")
+            .map(clean);
+    }
+
+    const fields = [];
+
+    let current = "";
+    let inQuotes = false;
+
+    for (
+        let index = 0;
+        index < text.length;
+        index++
+    ) {
+        const character =
+            text[index];
+
+        if (
+            character === '"'
+        ) {
+            if (
+                inQuotes &&
+                text[index + 1] === '"'
+            ) {
+                current += '"';
+                index++;
+            } else {
+                inQuotes =
+                    !inQuotes;
+            }
+
+            continue;
+        }
+
+        if (
+            character === "," &&
+            !inQuotes
+        ) {
+            fields.push(
+                clean(current)
+            );
+
+            current = "";
+            continue;
+        }
+
+        current +=
+            character;
+    }
+
+    fields.push(
+        clean(current)
+    );
+
+    return fields;
+}
+
+function isHeader(fields) {
+    const text =
+        fields
+            .map(
+                function (field) {
+                    return comparable(
+                        field
+                    ).replace(
+                        /[№._-]/g,
+                        " "
+                    );
+                }
+            )
+            .join(" ");
+
+    const words = [
+        "име",
+        "фамилия",
+        "факултетен",
+        "университет",
+        "часове",
+        "наставник"
+    ];
+
+    const foundWords =
+        words.filter(
+            function (word) {
+                return text.includes(
+                    word
+                );
+            }
+        );
+
+    return (
+        foundWords.length >= 3
+    );
+}
+
+function isMarkdownSeparator(fields) {
+    return (
+        fields.length > 0 &&
+        fields.every(
+            function (field) {
+                return /^:?-{3,}:?$/
+                    .test(
+                        field.replace(
+                            /\s/g,
+                            ""
+                        )
+                    );
+            }
+        )
+    );
+}
+
+function repairExtraFields(fields) {
+    if (
+        fields.length <= 8
+    ) {
+        return fields.map(
+            clean
+        );
+    }
+
+    const cleaned =
+        fields.map(clean);
+
+    const hasDate =
+        parseDate(
+            cleaned[0]
+        ) !== null;
+
+    let expected = 6;
+
+    if (hasDate) {
+        expected =
+            parseHours(
+                cleaned[5]
+            ) !== null
+                ? 7
+                : 8;
+    }
+
+    return [
+        ...cleaned.slice(
+            0,
+            expected - 1
+        ),
+
+        cleaned
+            .slice(
+                expected - 1
+            )
+            .join(", ")
+    ];
+}
+
+function parseBulkRecord(
+    recordText,
+    recordNumber
+) {
+    let fields =
+        parseFields(
+            recordText
+        );
+
+    if (
+        !fields.length ||
+        fields.every(
+            function (field) {
+                return !field;
+            }
+        )
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": празен запис."
+        };
+    }
+
+    if (
+        isHeader(fields) ||
+        isMarkdownSeparator(fields)
+    ) {
+        return {
+            type: "header"
+        };
+    }
+
+    fields =
+        repairExtraFields(
+            fields
+        );
+
+    let dateKey =
+        selectedDate;
+
+    let dayName = "";
+    let firstName = "";
+    let lastName = "";
+    let facultyNumber = "";
+    let university = "";
+    let hoursValue = "";
+    let mentor = "";
+
+    if (
+        fields.length === 6
+    ) {
+        [
+            firstName,
+            lastName,
+            facultyNumber,
+            university,
+            hoursValue,
+            mentor
+        ] = fields;
+
+        if (!selectedDate) {
+            return {
+                type: "error",
+
+                message:
+                    "Запис " +
+                    recordNumber +
+                    ": липсва дата и няма избран ден от календара."
+            };
+        }
+    } else if (
+        fields.length === 7
+    ) {
+        const date =
+            parseDate(
+                fields[0]
+            );
+
+        if (!date) {
+            return {
+                type: "error",
+
+                message:
+                    "Запис " +
+                    recordNumber +
+                    ": невалидна дата. Използвай YYYY-MM-DD."
+            };
+        }
+
+        dateKey =
+            dateToKey(date);
+
+        [
+            firstName,
+            lastName,
+            facultyNumber,
+            university,
+            hoursValue,
+            mentor
+        ] = fields.slice(1);
+    } else if (
+        fields.length === 8
+    ) {
+        const date =
+            parseDate(
+                fields[0]
+            );
+
+        if (!date) {
+            return {
+                type: "error",
+
+                message:
+                    "Запис " +
+                    recordNumber +
+                    ": невалидна дата. Използвай YYYY-MM-DD."
+            };
+        }
+
+        dateKey =
+            dateToKey(date);
+
+        [
+            dayName,
+            firstName,
+            lastName,
+            facultyNumber,
+            university,
+            hoursValue,
+            mentor
+        ] = fields.slice(1);
+    } else {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": очакват се 6, 7 или 8 полета, а са намерени " +
+                fields.length +
+                "."
+        };
+    }
+
+    const date =
+        keyToDate(dateKey);
+
+    if (!date) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": липсва или е невалидна дата."
+        };
+    }
+
+    if (
+        date < today
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": датата е в миналото."
+        };
+    }
+
+    if (
+        isWeekend(date)
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": събота и неделя са недостъпни."
+        };
+    }
+
+    if (
+        !clean(firstName)
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": липсва име."
+        };
+    }
+
+    if (
+        !clean(lastName)
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": липсва фамилия."
+        };
+    }
+
+    if (
+        !clean(mentor)
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": липсва наставник."
+        };
+    }
+
+    const hours =
+        parseHours(
+            hoursValue
+        );
+
+    if (
+        hours === null ||
+        hours < 0.5 ||
+        hours > 9 ||
+        Math.abs(
+            hours * 2 -
+            Math.round(
+                hours * 2
+            )
+        ) >
+            0.0001
+    ) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": часовете трябва да са от 0.5 до 9 през стъпка 0.5."
+        };
+    }
+
+    const endTime =
+        endTimeFromHours(
+            DEFAULT_START_TIME,
+            hours
+        );
+
+    if (!endTime) {
+        return {
+            type: "error",
+
+            message:
+                "Запис " +
+                recordNumber +
+                ": часовете излизат извън допустимия диапазон до 18:00."
+        };
+    }
+
+    return {
+        type: "student",
+
+        recordNumber,
+
+        dateKey,
+
+        dayName:
+            clean(dayName),
+
+        booking: {
+            id:
+                createId(),
+
+            firstName:
+                clean(firstName),
+
+            lastName:
+                clean(lastName),
+
+            facultyNumber:
+                clean(
+                    facultyNumber
+                ),
+
+            university:
+                clean(university),
+
+            startTime:
+                DEFAULT_START_TIME,
+
+            endTime,
+
+            HoursForTheDay:
+                hours,
+
+            mentor:
+                clean(mentor)
+        }
+    };
+}
+
+function clearBulkResult() {
+    bulkResult.hidden =
+        true;
+
+    bulkAddedCount.textContent =
+        "0";
+
+    bulkSkippedCount.textContent =
+        "0";
+
+    bulkErrorCount.textContent =
+        "0";
+
+    bulkErrorList.replaceChildren();
+}
+
+function showBulkResult(result) {
+    bulkAddedCount.textContent =
+        String(result.added);
+
+    bulkSkippedCount.textContent =
+        String(result.skipped);
+
+    bulkErrorCount.textContent =
+        String(
+            result.errors.length
+        );
+
+    bulkErrorList.replaceChildren();
+
+    result.errors.forEach(
+        function (message) {
+            const item =
+                document.createElement(
+                    "li"
+                );
+
+            item.textContent =
+                message;
+
+            bulkErrorList.appendChild(
+                item
+            );
+        }
+    );
+
+    bulkResult.hidden =
+        false;
+}
+
+function clearBulkHighlights() {
+    bulkHighlightLayer.textContent =
+        "";
+
+    bulkEditor.classList.remove(
+        "has-results"
+    );
+}
+
+function renderBulkHighlights(
+    source,
+    records,
+    states
+) {
+    bulkHighlightLayer.replaceChildren();
+
+    let cursor = 0;
+
+    records.forEach(
+        function (
+            record,
+            index
+        ) {
+            if (
+                record.start >
+                cursor
+            ) {
+                bulkHighlightLayer.append(
+                    document.createTextNode(
+                        source.slice(
+                            cursor,
+                            record.start
+                        )
+                    )
+                );
+            }
+
+            const state =
+                states.get(
+                    index + 1
+                ) ||
+                "error";
+
+            const span =
+                document.createElement(
+                    "span"
+                );
+
+            span.className =
+                "bulk-record-highlight " +
+                state;
+
+            span.dataset.state =
+                state;
+
+            span.textContent =
+                source.slice(
+                    record.start,
+                    record.end
+                );
+
+            bulkHighlightLayer.appendChild(
+                span
+            );
+
+            cursor =
+                record.end;
+        }
+    );
+
+    if (
+        cursor <
+        source.length
+    ) {
+        bulkHighlightLayer.append(
+            document.createTextNode(
+                source.slice(
+                    cursor
+                )
+            )
+        );
+    }
+
+    bulkEditor.classList.add(
+        "has-results"
+    );
+
+    bulkHighlightLayer.scrollTop =
+        bulkStudentsInput.scrollTop;
+
+    bulkHighlightLayer.scrollLeft =
+        bulkStudentsInput.scrollLeft;
+}
+
+function addStudentsFromList() {
+    const rawText =
+        bulkStudentsInput.value;
+
+    showBulkMessage();
+    clearBulkResult();
+    clearBulkHighlights();
+
+    if (
+        !rawText.trim()
+    ) {
+        showBulkMessage(
+            "Поставете списък със студенти.",
+            "error"
+        );
+
+        return;
+    }
+
+    const splitResult =
+        splitBulkRecords(
+            rawText
+        );
+
+    const source =
+        splitResult.source;
+
+    const records =
+        splitResult.records;
+
+    if (
+        !records.length
+    ) {
+        showBulkMessage(
+            "Списъкът е празен.",
+            "error"
+        );
+
+        return;
+    }
+
+    const result = {
+        added: 0,
+        skipped: 0,
+        errors: []
+    };
+
+    const states =
+        new Map();
+
+    const parsedStudents = [];
+
+    records.forEach(
+        function (
+            record,
+            index
+        ) {
+            const recordNumber =
+                index + 1;
+
+            const parsed =
+                parseBulkRecord(
+                    record.text,
+                    recordNumber
+                );
+
+            if (
+                parsed.type ===
+                "header"
+            ) {
+                result.skipped++;
+
+                result.errors.push(
+                    "Запис " +
+                    recordNumber +
+                    ": заглавният ред не се добавя."
+                );
+
+                states.set(
+                    recordNumber,
+                    "error"
+                );
+
+                return;
+            }
+
+            if (
+                parsed.type ===
+                "error"
+            ) {
+                result.errors.push(
+                    parsed.message
+                );
+
+                states.set(
+                    recordNumber,
+                    "error"
+                );
+
+                return;
+            }
+
+            parsedStudents.push(
+                parsed
+            );
+        }
+    );
+
+    const backup =
+        JSON.parse(
+            JSON.stringify(
+                schedule
+            )
+        );
+
+    const knownSignatures =
+        new Set();
+
+    Object.entries(
+        schedule
+    ).forEach(
+        function (
+            [dateKey, dayData]
+        ) {
+            normalizeDay(
+                dayData
+            ).bookings.forEach(
+                function (booking) {
+                    knownSignatures.add(
+                        bookingSignature(
+                            dateKey,
+                            booking
+                        )
+                    );
+                }
+            );
+        }
+    );
+
+    parsedStudents.forEach(
+        function (parsed) {
+            const dayData =
+                getDay(
+                    parsed.dateKey
+                );
+
+            const signature =
+                bookingSignature(
+                    parsed.dateKey,
+                    parsed.booking
+                );
+
+            if (
+                knownSignatures.has(
+                    signature
+                )
+            ) {
+                result.skipped++;
+
+                result.errors.push(
+                    "Запис " +
+                    parsed.recordNumber +
+                    ": същият студент вече е добавен за " +
+                    parsed.dateKey +
+                    " със същия часови диапазон."
+                );
+
+                states.set(
+                    parsed.recordNumber,
+                    "error"
+                );
+
+                return;
+            }
+
+            if (
+                dayData.bookings.length >=
+                MAX_STUDENTS_PER_DAY
+            ) {
+                result.skipped++;
+
+                result.errors.push(
+                    "Запис " +
+                    parsed.recordNumber +
+                    ": няма свободно място за " +
+                    parsed.dateKey +
+                    "."
+                );
+
+                states.set(
+                    parsed.recordNumber,
+                    "error"
+                );
+
+                return;
+            }
+
+            if (
+                parsed.dayName &&
+                !dayData.dayName
+            ) {
+                dayData.dayName =
+                    parsed.dayName;
+            }
+
+            dayData.bookings.push(
+                parsed.booking
+            );
+
+            knownSignatures.add(
+                signature
+            );
+
+            result.added++;
+
+            states.set(
+                parsed.recordNumber,
+                "success"
+            );
+        }
+    );
+
+    if (
+        result.added > 0
+    ) {
+        if (!saveSchedule()) {
+            schedule =
+                backup;
+
+            parsedStudents.forEach(
+                function (parsed) {
+                    if (
+                        states.get(
+                            parsed.recordNumber
+                        ) ===
+                        "success"
+                    ) {
+                        states.set(
+                            parsed.recordNumber,
+                            "error"
+                        );
+                    }
+                }
+            );
+
+            result.errors.push(
+                "Записът в localStorage беше неуспешен. Данните не са добавени."
+            );
+
+            result.added = 0;
+
+            showBulkMessage(
+                "Данните не бяха запазени.",
+                "error"
+            );
+        } else {
+            renderCalendar();
+
+            if (selectedDate) {
+                renderSidePreview(
+                    selectedDate
+                );
+            }
+
+            showBulkMessage(
+                "Успешно добавени студенти: " +
+                result.added +
+                ". Неуспешните записи са маркирани в червено.",
+                result.errors.length
+                    ? "error"
+                    : "success"
+            );
+        }
+    } else {
+        showBulkMessage(
+            "Не бяха добавени нови студенти. Провери записите, маркирани в червено.",
+            "error"
+        );
+    }
+
+    records.forEach(
+        function (
+            record,
+            index
+        ) {
+            if (
+                !states.has(
+                    index + 1
+                )
+            ) {
+                states.set(
+                    index + 1,
+                    "error"
+                );
+            }
+        }
+    );
+
+    renderBulkHighlights(
+        source,
+        records,
+        states
+    );
+
+    showBulkResult(
+        result
+    );
+}
+
+startTimeInput.addEventListener(
+    "change",
+    function () {
+        const endTime =
+            endTimeFromHours(
+                startTimeInput.value,
+                hoursForTheDayInput.value
+            );
+
+        if (endTime) {
+            endTimeInput.value =
+                endTime;
+        }
+    }
+);
+
+endTimeInput.addEventListener(
+    "change",
+    function () {
+        const hours =
+            hoursBetween(
+                startTimeInput.value,
+                endTimeInput.value
+            );
+
+        hoursForTheDayInput.value =
+            hours === null
+                ? ""
+                : String(hours);
+    }
+);
+
+hoursForTheDayInput.addEventListener(
+    "input",
+    function () {
+        const endTime =
+            endTimeFromHours(
+                startTimeInput.value,
+                hoursForTheDayInput.value
+            );
+
+        if (endTime) {
+            endTimeInput.value =
+                endTime;
+        }
+    }
+);
+
 addStudentsListBtn.addEventListener(
     "click",
     addStudentsFromList
@@ -2927,7 +3531,7 @@ bulkStudentsInput.addEventListener(
     function () {
         clearBulkHighlights();
         clearBulkResult();
-        showBulkMessage("");
+        showBulkMessage();
     }
 );
 
@@ -2939,10 +3543,8 @@ clearStudentsListBtn.addEventListener(
 
         clearBulkHighlights();
         clearBulkResult();
-        showBulkMessage("");
+        showBulkMessage();
 
-        bulkStudentsInput.scrollTop = 0;
-        bulkStudentsInput.scrollLeft = 0;
         bulkStudentsInput.focus();
     }
 );
@@ -2954,16 +3556,20 @@ cancelEditBtn.addEventListener(
 
         clearStudentFields();
         updateFormMode();
-        showMessage("");
+        showFormMessage();
     }
 );
 
 prevMonthBtn.addEventListener(
     "click",
     function () {
-        if (
-            isCurrentMonthView()
-        ) {
+        const isCurrentMonth =
+            currentYear ===
+                today.getFullYear() &&
+            currentMonth ===
+                today.getMonth();
+
+        if (isCurrentMonth) {
             return;
         }
 
@@ -2986,9 +3592,7 @@ prevMonthBtn.addEventListener(
                     today.getMonth()
             );
 
-        if (
-            beforeCurrentMonth
-        ) {
+        if (beforeCurrentMonth) {
             currentYear =
                 today.getFullYear();
 
@@ -2996,7 +3600,7 @@ prevMonthBtn.addEventListener(
                 today.getMonth();
         }
 
-        resetSelectedDateState();
+        resetSelection();
         renderCalendar();
     }
 );
@@ -3013,80 +3617,76 @@ nextMonthBtn.addEventListener(
             currentYear++;
         }
 
-        resetSelectedDateState();
+        resetSelection();
         renderCalendar();
     }
 );
 
-async function copyPromptToClipboard() {
-    try {
-        await navigator
-            .clipboard
-            .writeText(
-                GPT_PROMPT
-            );
-    } catch (error) {
-        const textarea =
-            document.createElement(
-                "textarea"
-            );
-
-        textarea.value =
-            GPT_PROMPT;
-
-        textarea.setAttribute(
-            "readonly",
-            ""
-        );
-
-        textarea.style.position =
-            "fixed";
-
-        textarea.style.opacity =
-            "0";
-
-        document.body.appendChild(
-            textarea
-        );
-
-        textarea.select();
-
-        document.execCommand(
-            "copy"
-        );
-
-        textarea.remove();
-    }
-
-    copyPromptBtn.textContent =
-        "Копирано";
-
-    copyPromptBtn.classList.add(
-        "copied"
-    );
-
-    copyPromptStatus.textContent =
-        "Prompt-ът е копиран.";
-
-    window.setTimeout(
-        function () {
-            copyPromptBtn.textContent =
-                "Копирай prompt-а";
-
-            copyPromptBtn.classList.remove(
-                "copied"
-            );
-
-            copyPromptStatus.textContent =
-                "";
-        },
-        2200
-    );
-}
-
 copyPromptBtn.addEventListener(
     "click",
-    copyPromptToClipboard
+    async function () {
+        try {
+            await navigator
+                .clipboard
+                .writeText(
+                    GPT_PROMPT
+                );
+        } catch (error) {
+            const textarea =
+                document.createElement(
+                    "textarea"
+                );
+
+            textarea.value =
+                GPT_PROMPT;
+
+            textarea.readOnly =
+                true;
+
+            textarea.style.position =
+                "fixed";
+
+            textarea.style.opacity =
+                "0";
+
+            document.body.appendChild(
+                textarea
+            );
+
+            textarea.select();
+
+            document.execCommand(
+                "copy"
+            );
+
+            textarea.remove();
+        }
+
+        copyPromptBtn.textContent =
+            "Копирано";
+
+        copyPromptBtn.classList.add(
+            "copied"
+        );
+
+        copyPromptStatus.textContent =
+            "Prompt-ът е копиран.";
+
+        setTimeout(
+            function () {
+                copyPromptBtn.textContent =
+                    "Копирай prompt-а";
+
+                copyPromptBtn.classList.remove(
+                    "copied"
+                );
+
+                copyPromptStatus.textContent =
+                    "";
+            },
+            2200
+        );
+    }
 );
 
 window.addEventListener(
@@ -3100,9 +3700,9 @@ window.addEventListener(
         }
 
         schedule =
-            loadScheduleFromStorage();
+            loadSchedule();
 
-        cleanupPastSchedule();
+        cleanupPastDays();
 
         if (selectedDate) {
             renderSidePreview(
@@ -3121,7 +3721,7 @@ window.addEventListener(
 
 window.addEventListener(
     "pagehide",
-    saveScheduleToStorage
+    saveSchedule
 );
 
 document.addEventListener(
@@ -3131,7 +3731,7 @@ document.addEventListener(
             document.visibilityState ===
             "hidden"
         ) {
-            saveScheduleToStorage();
+            saveSchedule();
         }
     }
 );
@@ -3140,22 +3740,19 @@ if (
     typeof ResizeObserver ===
     "function"
 ) {
-    const calendarResizeObserver =
+    const resizeObserver =
         new ResizeObserver(
             syncDetailsHeight
         );
 
-    calendarResizeObserver.observe(
+    resizeObserver.observe(
         calendarBox
     );
 }
 
-schedule =
-    loadScheduleFromStorage();
+cleanupPastDays();
 
-cleanupPastSchedule();
-
-saveScheduleToStorage();
+saveSchedule();
 
 populateTimeOptions();
 

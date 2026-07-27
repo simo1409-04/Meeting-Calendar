@@ -2,23 +2,12 @@
 <html lang="bg">
 <head>
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <meta
-        name="color-scheme"
-        content="light"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
 
     <title>Календар за заетост</title>
 
-    <link
-        rel="stylesheet"
-        href="style.css"
-    >
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
@@ -45,9 +34,7 @@
                         ‹
                     </button>
 
-                    <h2 id="monthTitle">
-                        Месец
-                    </h2>
+                    <h2 id="monthTitle">Месец</h2>
 
                     <button
                         id="nextMonthBtn"
@@ -58,10 +45,7 @@
                     </button>
                 </div>
 
-                <div
-                    class="week-days"
-                    aria-hidden="true"
-                >
+                <div class="week-days" aria-hidden="true">
                     <span>Пон</span>
                     <span>Вто</span>
                     <span>Сря</span>
@@ -71,10 +55,7 @@
                     <span>Нед</span>
                 </div>
 
-                <div
-                    id="calendarDays"
-                    class="calendar-days"
-                ></div>
+                <div id="calendarDays" class="calendar-days"></div>
 
                 <div class="legend">
                     <div>
@@ -104,31 +85,17 @@
                 </div>
             </section>
 
-            <section
-                id="detailsBox"
-                class="details-box"
-            >
+            <section id="detailsBox" class="details-box">
                 <div class="details-fixed-header">
-                    <h2>
-                        Информация за избран ден
-                    </h2>
+                    <h2>Информация за избран ден</h2>
 
-                    <p
-                        id="selectedDateText"
-                        class="selected-date-text"
-                    >
+                    <p id="selectedDateText" class="selected-date-text">
                         Изберете работен ден от календара.
                     </p>
                 </div>
 
-                <div
-                    id="detailsInnerScroll"
-                    class="details-inner-scroll"
-                >
-                    <div
-                        id="sidePreview"
-                        class="side-preview"
-                    >
+                <div id="detailsInnerScroll" class="details-inner-scroll">
+                    <div id="sidePreview" class="side-preview">
                         <p class="empty-text">
                             Изберете ден, за да видите дневния график
                             и записаните студенти.
@@ -147,18 +114,14 @@
                         ЕДИНИЧНО ДОБАВЯНЕ
                     </span>
 
-                    <h2 id="formTitle">
-                        Добавяне на студент
-                    </h2>
+                    <h2 id="formTitle">Добавяне на студент</h2>
 
                     <p class="card-description">
                         Избери ден от календара и въведи информацията
                         за студента.
                     </p>
 
-                    <label for="dayName">
-                        План за деня
-                    </label>
+                    <label for="dayName">План за деня</label>
 
                     <input
                         type="text"
@@ -170,33 +133,35 @@
 
                     <div class="form-row">
                         <div>
-                            <label for="startTime">
-                                От час
-                            </label>
-
-                            <select
-                                id="startTime"
-                                disabled
-                            ></select>
+                            <label for="startTime">От час</label>
+                            <select id="startTime" disabled></select>
                         </div>
 
                         <div>
-                            <label for="endTime">
-                                До час
-                            </label>
-
-                            <select
-                                id="endTime"
-                                disabled
-                            ></select>
+                            <label for="endTime">До час</label>
+                            <select id="endTime" disabled></select>
                         </div>
                     </div>
 
+                    <label for="hoursForTheDay">
+                        Часове за деня
+                    </label>
+
+                    <input
+                        type="number"
+                        id="hoursForTheDay"
+                        min="0.5"
+                        max="10"
+                        step="0.5"
+                        inputmode="decimal"
+                        placeholder="Въведи брой часове"
+                        disabled
+                        required
+                    >
+
                     <div class="form-row">
                         <div>
-                            <label for="firstName">
-                                Име
-                            </label>
+                            <label for="firstName">Име</label>
 
                             <input
                                 type="text"
@@ -207,9 +172,7 @@
                         </div>
 
                         <div>
-                            <label for="lastName">
-                                Фамилия
-                            </label>
+                            <label for="lastName">Фамилия</label>
 
                             <input
                                 type="text"
@@ -232,9 +195,7 @@
                         disabled
                     >
 
-                    <label for="university">
-                        Университет
-                    </label>
+                    <label for="university">Университет</label>
 
                     <input
                         type="text"
@@ -242,6 +203,17 @@
                         maxlength="100"
                         placeholder="По желание"
                         disabled
+                    >
+
+                    <label for="mentor">Наставник</label>
+
+                    <input
+                        type="text"
+                        id="mentor"
+                        maxlength="120"
+                        placeholder="Въведи наставник"
+                        disabled
+                        required
                     >
 
                     <div class="form-actions">
@@ -306,7 +278,7 @@
                         <strong>За избраната дата:</strong>
 
                         <code>
-                            Име,Фамилия,Факултетен номер,Университет,От,До
+                            Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
                         </code>
                     </div>
 
@@ -314,7 +286,7 @@
                         <strong>С конкретна дата:</strong>
 
                         <code>
-                            Дата,Име,Фамилия,Факултетен номер,Университет,От,До
+                            Дата,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
                         </code>
                     </div>
 
@@ -322,7 +294,7 @@
                         <strong>С дата и план:</strong>
 
                         <code>
-                            Дата,План,Име,Фамилия,Факултетен номер,Университет,От,До
+                            Дата,План,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
                         </code>
                     </div>
                 </div>
@@ -331,8 +303,8 @@
                     <strong>Пример:</strong>
 
                     <code>
-                        2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,11:00,12:30;
-                        2026-07-27,Консултации,Георги,Петров,329СР,СУ,13:00,14:00
+                        2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,6,Венета Христова Йосифова;
+                        2026-07-28,Консултации,Мария,Петрова,412СР,СУ,4.5,Петър Димитров
                     </code>
                 </div>
 
@@ -340,10 +312,7 @@
                     Списък със студенти
                 </label>
 
-                <div
-                    id="bulkEditor"
-                    class="bulk-editor"
-                >
+                <div id="bulkEditor" class="bulk-editor">
                     <pre
                         id="bulkHighlightLayer"
                         class="bulk-highlight-layer"
@@ -355,7 +324,7 @@
                         rows="11"
                         spellcheck="false"
                         aria-label="Списък със студенти"
-                        placeholder="2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,11:00,12:30;&#10;2026-07-27,Консултации,Георги,Петров,329СР,СУ,13:00,14:00"
+                        placeholder="2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,6,Венета Христова Йосифова;&#10;2026-07-28,Консултации,Мария,Петрова,412СР,СУ,4.5,Петър Димитров"
                     ></textarea>
                 </div>
 
@@ -383,26 +352,17 @@
                 >
                     <div class="bulk-result-grid">
                         <div>
-                            <strong id="bulkAddedCount">
-                                0
-                            </strong>
-
+                            <strong id="bulkAddedCount">0</strong>
                             <span>добавени</span>
                         </div>
 
                         <div>
-                            <strong id="bulkSkippedCount">
-                                0
-                            </strong>
-
+                            <strong id="bulkSkippedCount">0</strong>
                             <span>пропуснати</span>
                         </div>
 
                         <div>
-                            <strong id="bulkErrorCount">
-                                0
-                            </strong>
-
+                            <strong id="bulkErrorCount">0</strong>
                             <span>грешки</span>
                         </div>
                     </div>
