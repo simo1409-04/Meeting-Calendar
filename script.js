@@ -1,4 +1,5 @@
-const STORAGE_KEY = "meeting-calendar-schedule-v4";
+const LEGACY_STORAGE_KEY = "meeting-calendar-schedule-v4";
+const STORAGE_KEY_PREFIX = "meeting-calendar-schedule-v5:";
 const MAX_STUDENTS_PER_DAY = 10;
 
 const DAY_START = 8 * 60;
@@ -27,24 +28,26 @@ const GPT_PROMPT = `Генерирай списък със студенти за
 Използвай точно един от следните формати:
 
 1) За вече избрана дата:
-Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
+Име,Фамилия,Университет,Часове за деня,Наставник
 
 2) С конкретна дата:
-Дата,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
+Дата,Име,Фамилия,Университет,Часове за деня,Наставник
 
 3) С дата и план:
-Дата,План,Име,Фамилия,Факултетен номер,Университет,Часове за деня,Наставник
+Дата,План,Име,Фамилия,Университет,Часове за деня,Наставник
 
 Правила:
 - Датата да бъде във формат YYYY-MM-DD.
+- При посочена дата всеки запис трябва да се добави към точно тази дата, независимо кой ден е избран в календара.
+- Не е необходимо да има избран ден в календара, когато всеки запис съдържа дата.
 - Часовете да бъдат число от 0.5 до 9, през стъпка 0.5.
 - Всеки студент да бъде отделен с точка и запетая или да бъде на нов ред.
 - Не добавяй заглавия, номерация, обяснения или markdown таблица.
 - Не пропускай име, фамилия, часове и наставник.
 
 Пример:
-2026-07-27,Консултации,Иван,Иванов,328СР,УНИБИТ,6,Венета Христова Йосифова;
-2026-07-28,Консултации,Мария,Петрова,412СР,СУ,4.5,Петър Димитров`;
+2026-09-07,Консултации,Иван,Иванов,УНИБИТ,6,Магдалена Христова Иванова;
+2026-09-08,Консултации,Мария,Петрова,СУ,4.5,Петър Димитров`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -104,6 +107,9 @@ let currentMonth =
 
 let selectedDate = null;
 let editingId = null;
+
+migrateLegacySchedule();
+cleanupExpiredMonthStorage();
 
 let schedule =
     loadSchedule();
@@ -214,12 +220,9 @@ function parseDate(value) {
         );
 
         if (
-            date.getFullYear() ===
-                Number(match[1]) &&
-            date.getMonth() ===
-                Number(match[2]) - 1 &&
-            date.getDate() ===
-                Number(match[3])
+            date.getFullYear() === Number(match[1]) &&
+            date.getMonth() === Number(match[2]) - 1 &&
+            date.getDate() === Number(match[3])
         ) {
             return date;
         }
@@ -245,12 +248,9 @@ function parseDate(value) {
         );
 
         if (
-            date.getFullYear() ===
-                Number(match[3]) &&
-            date.getMonth() ===
-                Number(match[2]) - 1 &&
-            date.getDate() ===
-                Number(match[1])
+            date.getFullYear() === Number(match[3]) &&
+            date.getMonth() === Number(match[2]) - 1 &&
+            date.getDate() === Number(match[1])
         ) {
             return date;
         }
@@ -299,10 +299,7 @@ function timeToMinutes(value) {
         return null;
     }
 
-    return (
-        hours * 60 +
-        minutes
-    );
+    return hours * 60 + minutes;
 }
 
 function minutesToTime(total) {
@@ -366,9 +363,7 @@ function hoursBetween(
         return null;
     }
 
-    return (
-        end - start
-    ) / 60;
+    return (end - start) / 60;
 }
 
 function endTimeFromHours(
@@ -393,10 +388,7 @@ function endTimeFromHours(
         start +
         Math.round(hours * 60);
 
-    if (
-        end >
-        DAY_END
-    ) {
+    if (end > DAY_END) {
         return null;
     }
 
@@ -405,9 +397,7 @@ function endTimeFromHours(
 
 function normalizeBooking(raw = {}) {
     const startTime =
-        timeToMinutes(
-            raw.startTime
-        ) !== null
+        timeToMinutes(raw.startTime) !== null
             ? raw.startTime
             : DEFAULT_START_TIME;
 
@@ -418,9 +408,7 @@ function normalizeBooking(raw = {}) {
         );
 
     let endTime =
-        timeToMinutes(
-            raw.endTime
-        ) !== null
+        timeToMinutes(raw.endTime) !== null
             ? raw.endTime
             : null;
 
@@ -465,9 +453,7 @@ function normalizeBooking(raw = {}) {
             clean(raw.lastName),
 
         facultyNumber:
-            clean(
-                raw.facultyNumber
-            ),
+            clean(raw.facultyNumber),
 
         university:
             clean(raw.university),
@@ -486,9 +472,7 @@ function normalizeBooking(raw = {}) {
 
 function normalizeDay(raw = {}) {
     const bookings =
-        Array.isArray(
-            raw.bookings
-        )
+        Array.isArray(raw.bookings)
             ? raw.bookings
             : [];
 
@@ -498,9 +482,7 @@ function normalizeDay(raw = {}) {
 
         bookings:
             bookings
-                .map(
-                    normalizeBooking
-                )
+                .map(normalizeBooking)
                 .filter(
                     function (booking) {
                         return (
@@ -516,47 +498,91 @@ function normalizeDay(raw = {}) {
     };
 }
 
-function loadSchedule() {
-    try {
-        const parsed =
-            JSON.parse(
-                localStorage.getItem(
-                    STORAGE_KEY
-                ) ||
-                "{}"
-            );
+function monthKeyFromParts(
+    year,
+    monthIndex
+) {
+    return (
+        String(year) +
+        "-" +
+        String(monthIndex + 1)
+            .padStart(2, "0")
+    );
+}
 
-        if (
-            !parsed ||
-            typeof parsed !== "object" ||
-            Array.isArray(parsed)
+function monthKeyFromDateKey(
+    dateKey
+) {
+    return keyToDate(dateKey)
+        ? dateKey.slice(0, 7)
+        : null;
+}
+
+function currentMonthKey() {
+    return monthKeyFromParts(
+        currentYear,
+        currentMonth
+    );
+}
+
+function storageKeyForMonth(
+    monthKey
+) {
+    return (
+        STORAGE_KEY_PREFIX +
+        monthKey
+    );
+}
+
+function normalizeMonthSchedule(
+    raw,
+    expectedMonthKey
+) {
+    if (
+        !raw ||
+        typeof raw !== "object" ||
+        Array.isArray(raw)
+    ) {
+        return {};
+    }
+
+    const result = {};
+
+    Object.entries(raw).forEach(
+        function (
+            [dateKey, dayData]
         ) {
-            return {};
-        }
-
-        const result = {};
-
-        Object.entries(
-            parsed
-        ).forEach(
-            function (
-                [dateKey, dayData]
+            if (
+                monthKeyFromDateKey(dateKey) ===
+                expectedMonthKey
             ) {
-                if (
-                    keyToDate(dateKey)
-                ) {
-                    result[dateKey] =
-                        normalizeDay(
-                            dayData
-                        );
-                }
+                result[dateKey] =
+                    normalizeDay(dayData);
             }
-        );
+        }
+    );
 
-        return result;
+    return result;
+}
+
+function parseMonthScheduleValue(
+    rawValue,
+    monthKey
+) {
+    if (!rawValue) {
+        return {};
+    }
+
+    try {
+        return normalizeMonthSchedule(
+            JSON.parse(rawValue),
+            monthKey
+        );
     } catch (error) {
         console.error(
-            "Грешка при зареждане от localStorage:",
+            "Грешка при зареждане на месец " +
+                monthKey +
+                " от localStorage:",
             error
         );
 
@@ -564,19 +590,98 @@ function loadSchedule() {
     }
 }
 
-function saveSchedule() {
+function loadMonthSchedule(
+    monthKey
+) {
+    return parseMonthScheduleValue(
+        localStorage.getItem(
+            storageKeyForMonth(monthKey)
+        ),
+        monthKey
+    );
+}
+
+function loadLegacyMonthSchedule(
+    monthKey
+) {
     try {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(
-                schedule
-            )
+        const legacyRaw =
+            localStorage.getItem(
+                LEGACY_STORAGE_KEY
+            );
+
+        if (!legacyRaw) {
+            return {};
+        }
+
+        return normalizeMonthSchedule(
+            JSON.parse(legacyRaw),
+            monthKey
         );
+    } catch (error) {
+        console.error(
+            "Грешка при зареждане на старите данни от localStorage:",
+            error
+        );
+
+        return {};
+    }
+}
+
+function loadSchedule() {
+    const monthKey =
+        currentMonthKey();
+
+    const rawValue =
+        localStorage.getItem(
+            storageKeyForMonth(monthKey)
+        );
+
+    if (rawValue !== null) {
+        return parseMonthScheduleValue(
+            rawValue,
+            monthKey
+        );
+    }
+
+    return loadLegacyMonthSchedule(
+        monthKey
+    );
+}
+
+function saveMonthSchedule(
+    monthKey,
+    monthSchedule
+) {
+    try {
+        const normalized =
+            normalizeMonthSchedule(
+                monthSchedule,
+                monthKey
+            );
+
+        const storageKey =
+            storageKeyForMonth(monthKey);
+
+        if (
+            Object.keys(normalized).length === 0
+        ) {
+            localStorage.removeItem(
+                storageKey
+            );
+        } else {
+            localStorage.setItem(
+                storageKey,
+                JSON.stringify(normalized)
+            );
+        }
 
         return true;
     } catch (error) {
         console.error(
-            "Грешка при запис в localStorage:",
+            "Грешка при запис на месец " +
+                monthKey +
+                " в localStorage:",
             error
         );
 
@@ -584,12 +689,238 @@ function saveSchedule() {
     }
 }
 
+function saveSchedule() {
+    return saveMonthSchedule(
+        currentMonthKey(),
+        schedule
+    );
+}
+
+function migrateLegacySchedule() {
+    const legacyRaw =
+        localStorage.getItem(
+            LEGACY_STORAGE_KEY
+        );
+
+    if (!legacyRaw) {
+        return true;
+    }
+
+    const previousMonthValues =
+        new Map();
+
+    const affectedMonthKeys = [];
+    let legacyWasRemoved = false;
+
+    try {
+        const parsed =
+            JSON.parse(legacyRaw);
+
+        if (
+            !parsed ||
+            typeof parsed !== "object" ||
+            Array.isArray(parsed)
+        ) {
+            return false;
+        }
+
+        const grouped =
+            new Map();
+
+        Object.entries(parsed).forEach(
+            function (
+                [dateKey, dayData]
+            ) {
+                const date =
+                    keyToDate(dateKey);
+
+                if (
+                    !date ||
+                    date < today
+                ) {
+                    return;
+                }
+
+                const monthKey =
+                    monthKeyFromDateKey(
+                        dateKey
+                    );
+
+                if (
+                    !grouped.has(monthKey)
+                ) {
+                    grouped.set(
+                        monthKey,
+                        {}
+                    );
+                }
+
+                grouped.get(monthKey)[dateKey] =
+                    normalizeDay(dayData);
+            }
+        );
+
+        grouped.forEach(
+            function (
+                unused,
+                monthKey
+            ) {
+                const key =
+                    storageKeyForMonth(
+                        monthKey
+                    );
+
+                previousMonthValues.set(
+                    monthKey,
+                    localStorage.getItem(key)
+                );
+
+                affectedMonthKeys.push(
+                    monthKey
+                );
+            }
+        );
+
+        localStorage.removeItem(
+            LEGACY_STORAGE_KEY
+        );
+
+        legacyWasRemoved = true;
+
+        for (
+            const [monthKey, legacyMonth]
+            of grouped
+        ) {
+            const existingMonth =
+                parseMonthScheduleValue(
+                    previousMonthValues.get(
+                        monthKey
+                    ),
+                    monthKey
+                );
+
+            const merged = {
+                ...legacyMonth,
+                ...existingMonth
+            };
+
+            if (
+                !saveMonthSchedule(
+                    monthKey,
+                    merged
+                )
+            ) {
+                throw new Error(
+                    "Миграцията на " +
+                        monthKey +
+                        " беше неуспешна."
+                );
+            }
+        }
+
+        return true;
+    } catch (error) {
+        console.error(
+            "Грешка при разделяне на старите данни по месеци:",
+            error
+        );
+
+        if (legacyWasRemoved) {
+            try {
+                affectedMonthKeys.forEach(
+                    function (monthKey) {
+                        localStorage.removeItem(
+                            storageKeyForMonth(
+                                monthKey
+                            )
+                        );
+                    }
+                );
+
+                affectedMonthKeys.forEach(
+                    function (monthKey) {
+                        const oldValue =
+                            previousMonthValues.get(
+                                monthKey
+                            );
+
+                        if (oldValue !== null) {
+                            localStorage.setItem(
+                                storageKeyForMonth(
+                                    monthKey
+                                ),
+                                oldValue
+                            );
+                        }
+                    }
+                );
+
+                localStorage.setItem(
+                    LEGACY_STORAGE_KEY,
+                    legacyRaw
+                );
+            } catch (restoreError) {
+                console.error(
+                    "Старите данни не можаха да бъдат възстановени:",
+                    restoreError
+                );
+            }
+        }
+
+        return false;
+    }
+}
+
+function cleanupExpiredMonthStorage() {
+    const currentKey =
+        monthKeyFromParts(
+            today.getFullYear(),
+            today.getMonth()
+        );
+
+    const keysToRemove = [];
+
+    for (
+        let index = 0;
+        index < localStorage.length;
+        index++
+    ) {
+        const key =
+            localStorage.key(index);
+
+        if (
+            !key ||
+            !key.startsWith(
+                STORAGE_KEY_PREFIX
+            )
+        ) {
+            continue;
+        }
+
+        const monthKey =
+            key.slice(
+                STORAGE_KEY_PREFIX.length
+            );
+
+        if (
+            /^\d{4}-\d{2}$/.test(monthKey) &&
+            monthKey < currentKey
+        ) {
+            keysToRemove.push(key);
+        }
+    }
+
+    keysToRemove.forEach(
+        function (key) {
+            localStorage.removeItem(key);
+        }
+    );
+}
+
 function cleanupPastDays() {
     let changed = false;
 
-    Object.keys(
-        schedule
-    ).forEach(
+    Object.keys(schedule).forEach(
         function (dateKey) {
             const date =
                 keyToDate(dateKey);
@@ -609,28 +940,34 @@ function cleanupPastDays() {
     }
 }
 
-function getDay(dateKey) {
-    if (
-        !schedule[dateKey]
-    ) {
-        schedule[dateKey] = {
+function getDayFromSchedule(
+    monthSchedule,
+    dateKey
+) {
+    if (!monthSchedule[dateKey]) {
+        monthSchedule[dateKey] = {
             dayName: "",
             bookings: []
         };
     }
 
-    schedule[dateKey] =
+    monthSchedule[dateKey] =
         normalizeDay(
-            schedule[dateKey]
+            monthSchedule[dateKey]
         );
 
-    return schedule[dateKey];
+    return monthSchedule[dateKey];
+}
+
+function getDay(dateKey) {
+    return getDayFromSchedule(
+        schedule,
+        dateKey
+    );
 }
 
 function peekDay(dateKey) {
-    if (
-        schedule[dateKey]
-    ) {
+    if (schedule[dateKey]) {
         return normalizeDay(
             schedule[dateKey]
         );
@@ -642,26 +979,23 @@ function peekDay(dateKey) {
     };
 }
 
-function bookingSignature(
+function studentIdentityKey(
     dateKey,
     booking
 ) {
-    return [
-        dateKey,
-        comparable(
-            booking.firstName
-        ),
-        comparable(
-            booking.lastName
-        ),
+    const facultyNumber =
         comparable(
             booking.facultyNumber
-        ),
-        comparable(
-            booking.university
-        ),
-        booking.startTime,
-        booking.endTime
+        );
+
+    if (!facultyNumber) {
+        return null;
+    }
+
+    return [
+        dateKey,
+        comparable(booking.university),
+        facultyNumber
     ].join("|");
 }
 
@@ -690,9 +1024,7 @@ function bookingColor(
     }
 
     return BOOKING_COLORS[
-        Math.abs(
-            hash + index
-        ) %
+        Math.abs(hash + index) %
         BOOKING_COLORS.length
     ];
 }
@@ -756,12 +1088,10 @@ function formatDate(date) {
 
 function populateTimeOptions() {
     const startFragment =
-        document
-            .createDocumentFragment();
+        document.createDocumentFragment();
 
     const endFragment =
-        document
-            .createDocumentFragment();
+        document.createDocumentFragment();
 
     for (
         let minutes = DAY_START;
@@ -859,9 +1189,7 @@ function showFormMessage(
         "form-message";
 
     if (type) {
-        formMessage.classList.add(
-            type
-        );
+        formMessage.classList.add(type);
     }
 }
 
@@ -876,18 +1204,14 @@ function showBulkMessage(
         "bulk-message";
 
     if (type) {
-        bulkMessage.classList.add(
-            type
-        );
+        bulkMessage.classList.add(type);
     }
 }
 
 function clearStudentFields() {
     dayNameInput.value =
         selectedDate
-            ? peekDay(
-                selectedDate
-            ).dayName
+            ? peekDay(selectedDate).dayName
             : "";
 
     startTimeInput.value =
@@ -958,10 +1282,8 @@ function renderCalendar() {
         );
 
     prevMonthBtn.disabled =
-        currentYear ===
-            today.getFullYear() &&
-        currentMonth ===
-            today.getMonth();
+        currentYear === today.getFullYear() &&
+        currentMonth === today.getMonth();
 
     calendarDays.replaceChildren();
 
@@ -1131,18 +1453,14 @@ function renderCalendar() {
             plan.textContent =
                 dayData.dayName;
 
-            button.appendChild(
-                plan
-            );
+            button.appendChild(plan);
         }
 
         if (!unavailable) {
             button.addEventListener(
                 "click",
                 function () {
-                    selectDate(
-                        dateKey
-                    );
+                    selectDate(dateKey);
                 }
             );
         }
@@ -1242,9 +1560,7 @@ function createTimeScale() {
         label.textContent =
             minutesToTime(minutes);
 
-        scale.appendChild(
-            label
-        );
+        scale.appendChild(label);
     }
 
     return scale;
@@ -1282,8 +1598,7 @@ function tooltipRow(
         "tooltip-value";
 
     valueElement.textContent =
-        value ||
-        "—";
+        value || "—";
 
     row.append(
         labelElement,
@@ -1497,9 +1812,7 @@ function createPersonColumn(
                 tooltip
             );
 
-            body.appendChild(
-                block
-            );
+            body.appendChild(block);
         }
     }
 
@@ -1698,9 +2011,7 @@ function renderSidePreview(dateKey) {
         dayData.dayName ||
         "Няма зададен план за деня";
 
-    sidePreview.appendChild(
-        plan
-    );
+    sidePreview.appendChild(plan);
 
     if (
         bookings.length === 0
@@ -1716,9 +2027,7 @@ function renderSidePreview(dateKey) {
         empty.textContent =
             "За този ден няма записани студенти.";
 
-        sidePreview.appendChild(
-            empty
-        );
+        sidePreview.appendChild(empty);
 
         return;
     }
@@ -1855,9 +2164,7 @@ function renderSidePreview(dateKey) {
         );
 
     bookingsCount.textContent =
-        String(
-            bookings.length
-        );
+        String(bookings.length);
 
     bookingsHeader.append(
         bookingsTitle,
@@ -1899,19 +2206,13 @@ function renderSidePreview(dateKey) {
 
 function validateForm(dayData) {
     const firstName =
-        clean(
-            firstNameInput.value
-        );
+        clean(firstNameInput.value);
 
     const lastName =
-        clean(
-            lastNameInput.value
-        );
+        clean(lastNameInput.value);
 
     const mentor =
-        clean(
-            mentorInput.value
-        );
+        clean(mentorInput.value);
 
     const start =
         timeToMinutes(
@@ -1956,9 +2257,7 @@ function validateForm(dayData) {
         hours > 10 ||
         Math.abs(
             hours * 2 -
-            Math.round(
-                hours * 2
-            )
+            Math.round(hours * 2)
         ) >
             0.0001
     ) {
@@ -2027,14 +2326,10 @@ studentForm.addEventListener(
         }
 
         const dayData =
-            getDay(
-                selectedDate
-            );
+            getDay(selectedDate);
 
         const validationError =
-            validateForm(
-                dayData
-            );
+            validateForm(dayData);
 
         if (validationError) {
             showFormMessage(
@@ -2047,18 +2342,14 @@ studentForm.addEventListener(
 
         const backup =
             JSON.parse(
-                JSON.stringify(
-                    schedule
-                )
+                JSON.stringify(schedule)
             );
 
         const wasEditing =
             editingId !== null;
 
         dayData.dayName =
-            clean(
-                dayNameInput.value
-            );
+            clean(dayNameInput.value);
 
         const bookingData = {
             firstName:
@@ -2114,27 +2405,31 @@ studentForm.addEventListener(
                 return;
             }
 
+            const identityKey =
+                studentIdentityKey(
+                    selectedDate,
+                    bookingData
+                );
+
             const duplicate =
+                identityKey !== null &&
                 dayData.bookings.some(
                     function (item) {
                         return (
                             String(item.id) !==
                                 String(editingId) &&
-                            bookingSignature(
+                            studentIdentityKey(
                                 selectedDate,
                                 item
                             ) ===
-                                bookingSignature(
-                                    selectedDate,
-                                    bookingData
-                                )
+                                identityKey
                         );
                     }
                 );
 
             if (duplicate) {
                 showFormMessage(
-                    "Този студент и часови диапазон вече съществуват.",
+                    "Студент със същия факултетен номер вече е добавен за този ден.",
                     "error"
                 );
 
@@ -2148,28 +2443,29 @@ studentForm.addEventListener(
 
             editingId = null;
         } else {
-            const signature =
-                bookingSignature(
+            const identityKey =
+                studentIdentityKey(
                     selectedDate,
                     bookingData
                 );
 
             const duplicate =
+                identityKey !== null &&
                 dayData.bookings.some(
                     function (booking) {
                         return (
-                            bookingSignature(
+                            studentIdentityKey(
                                 selectedDate,
                                 booking
                             ) ===
-                            signature
+                            identityKey
                         );
                     }
                 );
 
             if (duplicate) {
                 showFormMessage(
-                    "Този студент и часови диапазон вече съществуват.",
+                    "Студент със същия факултетен номер вече е добавен за този ден.",
                     "error"
                 );
 
@@ -2183,8 +2479,7 @@ studentForm.addEventListener(
         }
 
         if (!saveSchedule()) {
-            schedule =
-                backup;
+            schedule = backup;
 
             showFormMessage(
                 "Записът в localStorage беше неуспешен. Промените не са запазени.",
@@ -2227,13 +2522,10 @@ function startEditBooking(id) {
         return;
     }
 
-    editingId =
-        id;
+    editingId = id;
 
     dayNameInput.value =
-        peekDay(
-            selectedDate
-        ).dayName;
+        peekDay(selectedDate).dayName;
 
     startTimeInput.value =
         booking.startTime;
@@ -2273,9 +2565,7 @@ function removeBooking(id) {
     }
 
     const dayData =
-        getDay(
-            selectedDate
-        );
+        getDay(selectedDate);
 
     const booking =
         dayData.bookings.find(
@@ -2306,9 +2596,7 @@ function removeBooking(id) {
 
     const backup =
         JSON.parse(
-            JSON.stringify(
-                schedule
-            )
+            JSON.stringify(schedule)
         );
 
     dayData.bookings =
@@ -2332,8 +2620,7 @@ function removeBooking(id) {
     }
 
     if (!saveSchedule()) {
-        schedule =
-            backup;
+        schedule = backup;
 
         showFormMessage(
             "Записът не беше премахнат, защото localStorage не можа да бъде обновен.",
@@ -2445,9 +2732,7 @@ function splitBulkRecords(source) {
         const character =
             source[index];
 
-        if (
-            character === '"'
-        ) {
+        if (character === '"') {
             if (
                 inQuotes &&
                 source[index + 1] === '"'
@@ -2559,9 +2844,7 @@ function parseFields(recordText) {
         const character =
             text[index];
 
-        if (
-            character === '"'
-        ) {
+        if (character === '"') {
             if (
                 inQuotes &&
                 text[index + 1] === '"'
@@ -2588,8 +2871,7 @@ function parseFields(recordText) {
             continue;
         }
 
-        current +=
-            character;
+        current += character;
     }
 
     fields.push(
@@ -2604,12 +2886,11 @@ function isHeader(fields) {
         fields
             .map(
                 function (field) {
-                    return comparable(
-                        field
-                    ).replace(
-                        /[№._-]/g,
-                        " "
-                    );
+                    return comparable(field)
+                        .replace(
+                            /[№._-]/g,
+                            " "
+                        );
                 }
             )
             .join(" ");
@@ -2617,7 +2898,6 @@ function isHeader(fields) {
     const words = [
         "име",
         "фамилия",
-        "факултетен",
         "университет",
         "часове",
         "наставник"
@@ -2626,15 +2906,11 @@ function isHeader(fields) {
     const foundWords =
         words.filter(
             function (word) {
-                return text.includes(
-                    word
-                );
+                return text.includes(word);
             }
         );
 
-    return (
-        foundWords.length >= 3
-    );
+    return foundWords.length >= 3;
 }
 
 function isMarkdownSeparator(fields) {
@@ -2655,31 +2931,23 @@ function isMarkdownSeparator(fields) {
 }
 
 function repairExtraFields(fields) {
-    if (
-        fields.length <= 8
-    ) {
-        return fields.map(
-            clean
-        );
+    if (fields.length <= 7) {
+        return fields.map(clean);
     }
 
     const cleaned =
         fields.map(clean);
 
     const hasDate =
-        parseDate(
-            cleaned[0]
-        ) !== null;
+        parseDate(cleaned[0]) !== null;
 
-    let expected = 6;
+    let expected = 5;
 
     if (hasDate) {
         expected =
-            parseHours(
-                cleaned[5]
-            ) !== null
-                ? 7
-                : 8;
+            parseHours(cleaned[4]) !== null
+                ? 6
+                : 7;
     }
 
     return [
@@ -2689,9 +2957,7 @@ function repairExtraFields(fields) {
         ),
 
         cleaned
-            .slice(
-                expected - 1
-            )
+            .slice(expected - 1)
             .join(", ")
     ];
 }
@@ -2701,9 +2967,7 @@ function parseBulkRecord(
     recordNumber
 ) {
     let fields =
-        parseFields(
-            recordText
-        );
+        parseFields(recordText);
 
     if (
         !fields.length ||
@@ -2733,33 +2997,57 @@ function parseBulkRecord(
     }
 
     fields =
-        repairExtraFields(
-            fields
-        );
+        repairExtraFields(fields);
 
-    let dateKey =
-        selectedDate;
-
+    let dateKey = null;
     let dayName = "";
     let firstName = "";
     let lastName = "";
-    let facultyNumber = "";
     let university = "";
     let hoursValue = "";
     let mentor = "";
 
-    if (
-        fields.length === 6
-    ) {
-        [
-            firstName,
-            lastName,
-            facultyNumber,
-            university,
-            hoursValue,
-            mentor
-        ] = fields;
+    const explicitDate =
+        parseDate(fields[0]);
 
+    if (explicitDate) {
+        dateKey =
+            dateToKey(explicitDate);
+
+        if (fields.length === 6) {
+            [
+                firstName,
+                lastName,
+                university,
+                hoursValue,
+                mentor
+            ] = fields.slice(1);
+        } else if (
+            fields.length === 7
+        ) {
+            [
+                dayName,
+                firstName,
+                lastName,
+                university,
+                hoursValue,
+                mentor
+            ] = fields.slice(1);
+        } else {
+            return {
+                type: "error",
+
+                message:
+                    "Запис " +
+                    recordNumber +
+                    ": при посочена дата се очакват 6 полета или 7 полета с план, а са намерени " +
+                    fields.length +
+                    "."
+            };
+        }
+    } else if (
+        fields.length === 5
+    ) {
         if (!selectedDate) {
             return {
                 type: "error",
@@ -2767,70 +3055,20 @@ function parseBulkRecord(
                 message:
                     "Запис " +
                     recordNumber +
-                    ": липсва дата и няма избран ден от календара."
-            };
-        }
-    } else if (
-        fields.length === 7
-    ) {
-        const date =
-            parseDate(
-                fields[0]
-            );
-
-        if (!date) {
-            return {
-                type: "error",
-
-                message:
-                    "Запис " +
-                    recordNumber +
-                    ": невалидна дата. Използвай YYYY-MM-DD."
+                    ": липсва дата. Избери ден от календара или добави дата във формат YYYY-MM-DD."
             };
         }
 
         dateKey =
-            dateToKey(date);
+            selectedDate;
 
         [
             firstName,
             lastName,
-            facultyNumber,
             university,
             hoursValue,
             mentor
-        ] = fields.slice(1);
-    } else if (
-        fields.length === 8
-    ) {
-        const date =
-            parseDate(
-                fields[0]
-            );
-
-        if (!date) {
-            return {
-                type: "error",
-
-                message:
-                    "Запис " +
-                    recordNumber +
-                    ": невалидна дата. Използвай YYYY-MM-DD."
-            };
-        }
-
-        dateKey =
-            dateToKey(date);
-
-        [
-            dayName,
-            firstName,
-            lastName,
-            facultyNumber,
-            university,
-            hoursValue,
-            mentor
-        ] = fields.slice(1);
+        ] = fields;
     } else {
         return {
             type: "error",
@@ -2838,7 +3076,7 @@ function parseBulkRecord(
             message:
                 "Запис " +
                 recordNumber +
-                ": очакват се 6, 7 или 8 полета, а са намерени " +
+                ": очакват се 5 полета за избрания ден, 6 полета с дата или 7 полета с дата и план, а са намерени " +
                 fields.length +
                 "."
         };
@@ -2858,9 +3096,7 @@ function parseBulkRecord(
         };
     }
 
-    if (
-        date < today
-    ) {
+    if (date < today) {
         return {
             type: "error",
 
@@ -2871,9 +3107,7 @@ function parseBulkRecord(
         };
     }
 
-    if (
-        isWeekend(date)
-    ) {
+    if (isWeekend(date)) {
         return {
             type: "error",
 
@@ -2884,9 +3118,7 @@ function parseBulkRecord(
         };
     }
 
-    if (
-        !clean(firstName)
-    ) {
+    if (!clean(firstName)) {
         return {
             type: "error",
 
@@ -2897,9 +3129,7 @@ function parseBulkRecord(
         };
     }
 
-    if (
-        !clean(lastName)
-    ) {
+    if (!clean(lastName)) {
         return {
             type: "error",
 
@@ -2910,9 +3140,7 @@ function parseBulkRecord(
         };
     }
 
-    if (
-        !clean(mentor)
-    ) {
+    if (!clean(mentor)) {
         return {
             type: "error",
 
@@ -2924,9 +3152,7 @@ function parseBulkRecord(
     }
 
     const hours =
-        parseHours(
-            hoursValue
-        );
+        parseHours(hoursValue);
 
     if (
         hours === null ||
@@ -2934,9 +3160,7 @@ function parseBulkRecord(
         hours > 9 ||
         Math.abs(
             hours * 2 -
-            Math.round(
-                hours * 2
-            )
+            Math.round(hours * 2)
         ) >
             0.0001
     ) {
@@ -2987,10 +3211,7 @@ function parseBulkRecord(
             lastName:
                 clean(lastName),
 
-            facultyNumber:
-                clean(
-                    facultyNumber
-                ),
+            facultyNumber: "",
 
             university:
                 clean(university),
@@ -3033,9 +3254,7 @@ function showBulkResult(result) {
         String(result.skipped);
 
     bulkErrorCount.textContent =
-        String(
-            result.errors.length
-        );
+        String(result.errors.length);
 
     bulkErrorList.replaceChildren();
 
@@ -3049,9 +3268,7 @@ function showBulkResult(result) {
             item.textContent =
                 message;
 
-            bulkErrorList.appendChild(
-                item
-            );
+            bulkErrorList.appendChild(item);
         }
     );
 
@@ -3097,9 +3314,7 @@ function renderBulkHighlights(
             }
 
             const state =
-                states.get(
-                    index + 1
-                ) ||
+                states.get(index + 1) ||
                 "error";
 
             const span =
@@ -3135,9 +3350,7 @@ function renderBulkHighlights(
     ) {
         bulkHighlightLayer.append(
             document.createTextNode(
-                source.slice(
-                    cursor
-                )
+                source.slice(cursor)
             )
         );
     }
@@ -3161,9 +3374,7 @@ function addStudentsFromList() {
     clearBulkResult();
     clearBulkHighlights();
 
-    if (
-        !rawText.trim()
-    ) {
+    if (!rawText.trim()) {
         showBulkMessage(
             "Поставете списък със студенти.",
             "error"
@@ -3173,9 +3384,7 @@ function addStudentsFromList() {
     }
 
     const splitResult =
-        splitBulkRecords(
-            rawText
-        );
+        splitBulkRecords(rawText);
 
     const source =
         splitResult.source;
@@ -3183,9 +3392,7 @@ function addStudentsFromList() {
     const records =
         splitResult.records;
 
-    if (
-        !records.length
-    ) {
+    if (!records.length) {
         showBulkMessage(
             "Списъкът е празен.",
             "error"
@@ -3255,69 +3462,135 @@ function addStudentsFromList() {
                 return;
             }
 
-            parsedStudents.push(
-                parsed
-            );
+            parsedStudents.push(parsed);
         }
     );
 
-    const backup =
-        JSON.parse(
-            JSON.stringify(
-                schedule
+    const displayedMonthKey =
+        currentMonthKey();
+
+    const monthContexts =
+        new Map();
+
+    function getMonthContext(
+        dateKey
+    ) {
+        const monthKey =
+            monthKeyFromDateKey(
+                dateKey
+            );
+
+        if (!monthKey) {
+            return null;
+        }
+
+        if (
+            monthContexts.has(
+                monthKey
             )
+        ) {
+            return monthContexts.get(
+                monthKey
+            );
+        }
+
+        const storageKey =
+            storageKeyForMonth(
+                monthKey
+            );
+
+        const rawValue =
+            localStorage.getItem(
+                storageKey
+            );
+
+        const original =
+            monthKey === displayedMonthKey
+                ? JSON.parse(
+                    JSON.stringify(schedule)
+                )
+                : parseMonthScheduleValue(
+                    rawValue,
+                    monthKey
+                );
+
+        const context = {
+            monthKey,
+            storageKey,
+            rawValue,
+            original,
+            working:
+                JSON.parse(
+                    JSON.stringify(original)
+                ),
+            changed: false
+        };
+
+        monthContexts.set(
+            monthKey,
+            context
         );
 
-    const knownSignatures =
-        new Set();
-
-    Object.entries(
-        schedule
-    ).forEach(
-        function (
-            [dateKey, dayData]
-        ) {
-            normalizeDay(
-                dayData
-            ).bookings.forEach(
-                function (booking) {
-                    knownSignatures.add(
-                        bookingSignature(
-                            dateKey,
-                            booking
-                        )
-                    );
-                }
-            );
-        }
-    );
+        return context;
+    }
 
     parsedStudents.forEach(
         function (parsed) {
-            const dayData =
-                getDay(
+            const context =
+                getMonthContext(
                     parsed.dateKey
                 );
 
-            const signature =
-                bookingSignature(
+            if (!context) {
+                result.errors.push(
+                    "Запис " +
+                    parsed.recordNumber +
+                    ": датата е невалидна."
+                );
+
+                states.set(
+                    parsed.recordNumber,
+                    "error"
+                );
+
+                return;
+            }
+
+            const dayData =
+                getDayFromSchedule(
+                    context.working,
+                    parsed.dateKey
+                );
+
+            const identityKey =
+                studentIdentityKey(
                     parsed.dateKey,
                     parsed.booking
                 );
 
-            if (
-                knownSignatures.has(
-                    signature
-                )
-            ) {
+            const duplicate =
+                identityKey !== null &&
+                dayData.bookings.some(
+                    function (booking) {
+                        return (
+                            studentIdentityKey(
+                                parsed.dateKey,
+                                booking
+                            ) ===
+                            identityKey
+                        );
+                    }
+                );
+
+            if (duplicate) {
                 result.skipped++;
 
                 result.errors.push(
                     "Запис " +
                     parsed.recordNumber +
-                    ": същият студент вече е добавен за " +
+                    ": студент със същия факултетен номер вече е добавен за " +
                     parsed.dateKey +
-                    " със същия часови диапазон."
+                    "."
                 );
 
                 states.set(
@@ -3362,10 +3635,7 @@ function addStudentsFromList() {
                 parsed.booking
             );
 
-            knownSignatures.add(
-                signature
-            );
-
+            context.changed = true;
             result.added++;
 
             states.set(
@@ -3375,12 +3645,62 @@ function addStudentsFromList() {
         }
     );
 
-    if (
-        result.added > 0
-    ) {
-        if (!saveSchedule()) {
-            schedule =
-                backup;
+    if (result.added > 0) {
+        const changedContexts =
+            Array.from(
+                monthContexts.values()
+            ).filter(
+                function (context) {
+                    return context.changed;
+                }
+            );
+
+        const savedContexts = [];
+        let saveFailed = false;
+
+        for (
+            const context
+            of changedContexts
+        ) {
+            if (
+                !saveMonthSchedule(
+                    context.monthKey,
+                    context.working
+                )
+            ) {
+                saveFailed = true;
+                break;
+            }
+
+            savedContexts.push(context);
+        }
+
+        if (saveFailed) {
+            savedContexts.forEach(
+                function (context) {
+                    try {
+                        if (
+                            context.rawValue === null
+                        ) {
+                            localStorage.removeItem(
+                                context.storageKey
+                            );
+                        } else {
+                            localStorage.setItem(
+                                context.storageKey,
+                                context.rawValue
+                            );
+                        }
+                    } catch (error) {
+                        console.error(
+                            "Неуспешно възстановяване на месец " +
+                                context.monthKey +
+                                ":",
+                            error
+                        );
+                    }
+                }
+            );
 
             parsedStudents.forEach(
                 function (parsed) {
@@ -3409,6 +3729,19 @@ function addStudentsFromList() {
                 "error"
             );
         } else {
+            const displayedContext =
+                monthContexts.get(
+                    displayedMonthKey
+                );
+
+            if (
+                displayedContext &&
+                displayedContext.changed
+            ) {
+                schedule =
+                    displayedContext.working;
+            }
+
             renderCalendar();
 
             if (selectedDate) {
@@ -3439,9 +3772,7 @@ function addStudentsFromList() {
             index
         ) {
             if (
-                !states.has(
-                    index + 1
-                )
+                !states.has(index + 1)
             ) {
                 states.set(
                     index + 1,
@@ -3457,9 +3788,7 @@ function addStudentsFromList() {
         states
     );
 
-    showBulkResult(
-        result
-    );
+    showBulkResult(result);
 }
 
 startTimeInput.addEventListener(
@@ -3538,8 +3867,7 @@ bulkStudentsInput.addEventListener(
 clearStudentsListBtn.addEventListener(
     "click",
     function () {
-        bulkStudentsInput.value =
-            "";
+        bulkStudentsInput.value = "";
 
         clearBulkHighlights();
         clearBulkResult();
@@ -3564,10 +3892,8 @@ prevMonthBtn.addEventListener(
     "click",
     function () {
         const isCurrentMonth =
-            currentYear ===
-                today.getFullYear() &&
-            currentMonth ===
-                today.getMonth();
+            currentYear === today.getFullYear() &&
+            currentMonth === today.getMonth();
 
         if (isCurrentMonth) {
             return;
@@ -3575,21 +3901,16 @@ prevMonthBtn.addEventListener(
 
         currentMonth--;
 
-        if (
-            currentMonth < 0
-        ) {
+        if (currentMonth < 0) {
             currentMonth = 11;
             currentYear--;
         }
 
         const beforeCurrentMonth =
-            currentYear <
-                today.getFullYear() ||
+            currentYear < today.getFullYear() ||
             (
-                currentYear ===
-                    today.getFullYear() &&
-                currentMonth <
-                    today.getMonth()
+                currentYear === today.getFullYear() &&
+                currentMonth < today.getMonth()
             );
 
         if (beforeCurrentMonth) {
@@ -3600,6 +3921,10 @@ prevMonthBtn.addEventListener(
                 today.getMonth();
         }
 
+        schedule =
+            loadSchedule();
+
+        cleanupPastDays();
         resetSelection();
         renderCalendar();
     }
@@ -3610,13 +3935,15 @@ nextMonthBtn.addEventListener(
     function () {
         currentMonth++;
 
-        if (
-            currentMonth > 11
-        ) {
+        if (currentMonth > 11) {
             currentMonth = 0;
             currentYear++;
         }
 
+        schedule =
+            loadSchedule();
+
+        cleanupPastDays();
         resetSelection();
         renderCalendar();
     }
@@ -3628,9 +3955,7 @@ copyPromptBtn.addEventListener(
         try {
             await navigator
                 .clipboard
-                .writeText(
-                    GPT_PROMPT
-                );
+                .writeText(GPT_PROMPT);
         } catch (error) {
             const textarea =
                 document.createElement(
@@ -3655,9 +3980,7 @@ copyPromptBtn.addEventListener(
 
             textarea.select();
 
-            document.execCommand(
-                "copy"
-            );
+            document.execCommand("copy");
 
             textarea.remove();
         }
@@ -3692,9 +4015,14 @@ copyPromptBtn.addEventListener(
 window.addEventListener(
     "storage",
     function (event) {
+        const visibleStorageKey =
+            storageKeyForMonth(
+                currentMonthKey()
+            );
+
         if (
-            event.key !==
-            STORAGE_KEY
+            event.key !== null &&
+            event.key !== visibleStorageKey
         ) {
             return;
         }
@@ -3751,8 +4079,6 @@ if (
 }
 
 cleanupPastDays();
-
-saveSchedule();
 
 populateTimeOptions();
 

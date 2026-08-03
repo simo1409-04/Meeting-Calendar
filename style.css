@@ -1170,3 +1170,60 @@ textarea:focus-visible,
         max-height: 680px;
     }
 }
+
+.person-column:first-child .student-tooltip,
+.person-column:nth-child(2) .student-tooltip {
+    left: 0;
+    right: auto;
+    transform: translate(0, 8px);
+}
+
+.person-column:first-child .busy-block:hover .student-tooltip,
+.person-column:first-child .busy-block:focus-visible .student-tooltip,
+.person-column:nth-child(2) .busy-block:hover .student-tooltip,
+.person-column:nth-child(2) .busy-block:focus-visible .student-tooltip {
+    transform: translate(0, 0);
+}
+
+.person-column:first-child .student-tooltip::after,
+.person-column:nth-child(2) .student-tooltip::after {
+    left: 18px;
+    right: auto;
+    transform: none;
+}
+
+.person-column:nth-last-child(1) .student-tooltip,
+.person-column:nth-last-child(2) .student-tooltip {
+    left: auto;
+    right: 0;
+    transform: translate(0, 8px);
+}
+
+.person-column:nth-last-child(1) .busy-block:hover .student-tooltip,
+.person-column:nth-last-child(1) .busy-block:focus-visible .student-tooltip,
+.person-column:nth-last-child(2) .busy-block:hover .student-tooltip,
+.person-column:nth-last-child(2) .busy-block:focus-visible .student-tooltip {
+    transform: translate(0, 0);
+}
+
+.person-column:nth-last-child(1) .student-tooltip::after,
+.person-column:nth-last-child(2) .student-tooltip::after {
+    left: auto;
+    right: 18px;
+    transform: none;
+}
+
+.person-column:has(.busy-block:hover),
+.person-column:has(.busy-block:focus-visible) {
+    position: relative;
+    z-index: 200;
+}
+
+.busy-block:hover,
+.busy-block:focus-visible {
+    z-index: 300;
+}
+
+.student-tooltip {
+    z-index: 400;
+}
